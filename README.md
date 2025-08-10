@@ -1,1 +1,1 @@
-psql 'postgresql://USER:PASSWORD@HOST/neondb?sslmode=require&channel_binding=require'
+
