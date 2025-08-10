@@ -1,19 +1,20 @@
-import { GoogleGenAI } from "@google/genai";
-import dotenv from 'dotenv';
+import { generateSentence } from "./lib/generateSentence.js";
+import dotenv from "dotenv";
 
 dotenv.config();
 
-const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
-
-const word = "Despair";
-const level = "B2";
+// Accept params from CLI: node generate.js "word here" B2
+const [, , wordArg, levelArg] = process.argv;
+const word = wordArg || process.env.GENERATE_WORD || "Despair";
+const level = levelArg || process.env.GENERATE_LEVEL || "B2";
 
 async function main() {
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: `Write one sentence with English Level ${level} with word '${word}'`,
-  });
-  console.log(response.text);
+  const sentence = await generateSentence({ word, level });
+  // Print JSON for easy parsing
+  console.log(JSON.stringify({ word, level, sentence }));
 }
 
-main();
+main().catch((err) => {
+  console.error(err?.message || err);
+  process.exit(1);
+});
