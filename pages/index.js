@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { stackClientApp } from '../stack/client';
 
 const VOCABULARY_URL = 'https://app-orange-meadow-73857621.dpl.myneon.app/vocabulary';
 const LOCAL_STORAGE_KEY = 'vocabularyData';
@@ -7,6 +8,85 @@ const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
 const LOCAL_STORAGE_RANDOM_KEY = 'vocabularyRandomOrder';
 
 export default function Home() {
+  // Auth state
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  // Check auth on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const u = await stackClientApp.getUser({ or: 'return-null' });
+        if (!cancelled) setUser(u);
+      } catch (e) {
+        if (!cancelled) setAuthError(e instanceof Error ? e.message : 'Auth error');
+      } finally {
+        if (!cancelled) setAuthLoading(false);
+      }
+    })();
+    // Load stored tokens if present
+    try {
+      if (typeof window !== 'undefined') {
+        // New explicit keys
+        const lsAccess = localStorage.getItem('AccessToken');
+        const lsRefresh = localStorage.getItem('RefreshToken');
+        const lsUserId = localStorage.getItem('AuthUserId');
+        if (lsAccess) setAccessToken(lsAccess);
+        if (lsRefresh) setRefreshToken(lsRefresh);
+        if (lsUserId) setAuthUserId(lsUserId);
+        // Back-compat: old bundled key
+        if (!lsAccess || !lsRefresh || !lsUserId) {
+          const raw = localStorage.getItem(LOCAL_STORAGE_AUTH_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.access_token === 'string') setAccessToken(parsed.access_token);
+            if (parsed && typeof parsed.refresh_token === 'string') setRefreshToken(parsed.refresh_token);
+            if (parsed && typeof parsed.user_id === 'string') setAuthUserId(parsed.user_id);
+          }
+        }
+      }
+    } catch (_) {}
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleEmailPasswordSignIn(event) {
+    event?.preventDefault?.();
+    setAuthError('');
+    try {
+      const res = await stackClientApp.signInWithCredential({ email, password, noRedirect: true });
+      if (res && res.status === 'ok') {
+        const u = await stackClientApp.getUser({ or: 'return-null' });
+        setUser(u);
+        setAuthError('');
+        // Capture tokens and persist in required shape
+        const auth = u && typeof u.getAuthJson === 'function' ? await u.getAuthJson() : { accessToken: null, refreshToken: null };
+        const payload = {
+          access_token: auth?.accessToken ?? '',
+          refresh_token: auth?.refreshToken ?? '',
+          user_id: u?.id ?? '',
+        };
+        try {
+          // Store both the bundled object and explicit keys as requested
+          localStorage.setItem(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(payload));
+          localStorage.setItem('AccessToken', payload.access_token || '');
+          localStorage.setItem('RefreshToken', payload.refresh_token || '');
+          localStorage.setItem('AuthUserId', payload.user_id || '');
+        } catch (_) {}
+        setAccessToken(payload.access_token);
+        setRefreshToken(payload.refresh_token);
+        setAuthUserId(payload.user_id);
+      } else {
+        const msg = res?.error?.message || 'Не удалось войти';
+        setAuthError(msg);
+      }
+    } catch (e) {
+      setAuthError(e instanceof Error ? e.message : 'Не удалось войти');
+    }
+  }
   const [entryList, setEntryList] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -21,6 +101,11 @@ export default function Home() {
   const [orderIndices, setOrderIndices] = useState([]);
   const [randomHistory, setRandomHistory] = useState([]); // indices visited in random mode
   const [randomHistoryPos, setRandomHistoryPos] = useState(-1); // pointer into randomHistory
+  // Auth tokens
+  const LOCAL_STORAGE_AUTH_KEY = 'stackAuthTokens';
+  const [accessToken, setAccessToken] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
+  const [authUserId, setAuthUserId] = useState('');
 
   function buildDefaultOrder(length) {
     return Array.from({ length }, (_, i) => i);
@@ -52,6 +137,8 @@ export default function Home() {
   }
 
   useEffect(() => {
+    // Do not load vocabulary until authenticated either by Stack or stored token
+    if (authLoading || (!user && !accessToken)) return;
     let isActive = true;
 
     async function loadVocabulary() {
@@ -65,12 +152,11 @@ export default function Home() {
           setIsLoading(false);
         }
 
-        const response = await fetch(VOCABULARY_URL, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-          },
-        });
+        const headers = { Accept: 'application/json' };
+        if (accessToken) {
+          headers.Authorization = `Bearer ${accessToken}`;
+        }
+        const response = await fetch(VOCABULARY_URL, { method: 'GET', headers });
 
         if (!response.ok) {
           throw new Error(`Request failed with status ${response.status}`);
@@ -98,7 +184,7 @@ export default function Home() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [authLoading, user]);
 
   // Load history on mount
   useEffect(() => {
@@ -118,7 +204,7 @@ export default function Home() {
     } catch (_) {
       // ignore malformed
     }
-  }, []);
+  }, [authLoading, user, accessToken]);
 
   // Rebuild navigation order whenever entries change
   useEffect(() => {
@@ -249,6 +335,62 @@ export default function Home() {
     }
   }
 
+  // Gate: show auth UI first
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
+        Загрузка авторизации…
+      </div>
+    );
+  }
+
+  if (!user && !accessToken) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+        <form
+          onSubmit={handleEmailPasswordSignIn}
+          style={{ width: 'min(380px, 95vw)', border: '1px solid #e5e5e5', borderRadius: '0.75rem', padding: '1rem', boxShadow: '0 6px 18px rgba(0,0,0,0.06)' }}
+        >
+          <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem' }}>Вход</h1>
+          <p style={{ marginTop: 0, marginBottom: '1rem', opacity: 0.75, fontSize: '0.9rem' }}>Авторизуйтесь, чтобы открыть словарь</p>
+          <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
+            <span style={{ fontSize: '0.85rem' }}>Email</span>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={{ padding: '0.5rem 0.6rem', border: '1px solid #ccc', borderRadius: '0.4rem' }}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
+            <span style={{ fontSize: '0.85rem' }}>Пароль</span>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={{ padding: '0.5rem 0.6rem', border: '1px solid #ccc', borderRadius: '0.4rem' }}
+            />
+          </label>
+          {authError && (
+            <div style={{ color: '#b00020', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{authError}</div>
+          )}
+          <button
+            type="submit"
+            style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}
+          >
+            Войти
+          </button>
+
+          <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', opacity: 0.7 }}>
+            Есть аккаунт: используйте Email и Пароль, созданные в Stack Auth
+          </div>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={handleAdvance}
@@ -295,6 +437,39 @@ export default function Home() {
         aria-label="Open settings"
       >
         Settings
+      </button>
+
+      {/* Sign out */}
+      <button
+        type="button"
+        onClick={async (event) => {
+          event.stopPropagation();
+          try {
+            await user?.signOut({ redirectUrl: '/' });
+            setUser(null);
+            try { localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY); } catch (_) {}
+            try { localStorage.removeItem('AccessToken'); } catch (_) {}
+            try { localStorage.removeItem('RefreshToken'); } catch (_) {}
+            try { localStorage.removeItem('AuthUserId'); } catch (_) {}
+            setAccessToken('');
+            setRefreshToken('');
+            setAuthUserId('');
+          } catch (_) {}
+        }}
+        style={{
+          position: 'absolute',
+          top: '1rem',
+          left: '1rem',
+          padding: '0.4rem 0.7rem',
+          borderRadius: '0.4rem',
+          border: '1px solid #ccc',
+          background: '#fff',
+          cursor: 'pointer',
+          fontSize: '0.85rem',
+        }}
+        aria-label="Sign out"
+      >
+        Sign out
       </button>
 
       
