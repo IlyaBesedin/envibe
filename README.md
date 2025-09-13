@@ -1,92 +1,75 @@
-psql 'postgresql://USER:PASSWORD@HOST/neondb?sslmode=require&channel_binding=require'
+**Project Structure**
 
-Структура проекта:
-
+```
 envibe/
-├── Основные файлы
-│ ├── package.json - Конфигурация проекта (Next.js + React)
-│ ├── generate.js - CLI утилита для генерации предложений
-│ └── README.md - Инструкции по запуску
+├── Core Files
+│   ├── package.json        # Project config (Next.js + React)
+│   ├── generate.js         # CLI utility for sentence generation
+│   └── README.md           # Getting started and docs
 │
-├── pages/ - Next.js страницы
-│ ├── index.js - Главная страница приложения (556 строк)
-│ └── api/
-│ └── generate.js - API для генерации предложений с AI
+├── pages/                  # Next.js pages (Pages Router)
+│   ├── index.js            # Main app page (~556 lines)
+│   └── api/
+│       └── generate.js     # AI generation API route
 │
-├── lib/ - Утилиты
-│ └── generateSentence.js - Модуль для работы с Gemini AI
+├── lib/                    # Utilities
+│   └── generateSentence.js # Gemini AI integration module
 │
-├── stack/ - Stack Auth конфигурация
-│ ├── client.js - Клиентская конфигурация
-│ └── server.js - Серверная конфигурация
+├── stack/                  # Stack Auth configuration
+│   ├── client.js           # Client-side config
+│   └── server.js           # Server-side config
 │
-└── neon-auth-nextjs-template/ - Шаблон Neon Auth
-└── src/ - TypeScript приложение с аутентификацией
+└── neon-auth-nextjs-template/ # Neon Auth template
+    └── src/                # TypeScript app with authentication
+```
 
-Основной функционал
+**Overview**
+- English vocabulary learning app with AI-generated example sentences.
 
-Приложение для изучения английского словаря с AI-генерацией предложений:
+**Features**
+- Vocabulary management:
+  - Fetches data from Neon DB: https://app-orange-meadow-73857621.dpl.myneon.app/vocabulary
+  - Data format: `[{ id, key, translate }]`
+  - Local caching in `localStorage`
+- Navigation modes:
+  - Sequential: in-order browsing
+  - Random: random selection
+  - Keyboard, click, and arrow navigation
+- AI sentence generation:
+  - Google Gemini integration
+  - Level-based output (A1–C2)
+  - API endpoint: `/api/generate`
+- View history:
+  - Tracks viewed words with de-duplication
+  - Modal to review history
+- Settings:
+  - Select English level (A1–C2)
+  - Toggle random order
+  - Clear cache and history
 
-1. Управление словарем
-
-- Загрузка данных с Neon DB: https://app-orange-meadow-73857621.dpl.myneon.app/vocabulary
-- Формат данных: [{id, key, translate}]
-- Кэширование в localStorage
-
-2. Режимы навигации
-
-- Последовательный: слова по порядку
-- Случайный: случайный выбор слов
-- Навигация стрелками, кликом, клавиатурой
-
-3. AI-генерация предложений
-
-- Интеграция с Google Gemini AI
-- Генерация предложений по уровню (A1-C2)
-- API endpoint: /api/generate
-
-4. История просмотров
-
-- Отслеживание просмотренных слов
-- Дедупликация записей
-- Модальное окно истории
-
-5. Настройки
-
-- Выбор уровня английского (A1-C2)
-- Переключение случайного режима
-- Сброс кэша и истории
-
-Технологический стек
-
+**Tech Stack**
 - Frontend: Next.js 15.4.5, React 19.1.1
-- AI: Google Gemini AI (@google/genai)
-- База данных: Neon PostgreSQL
-- Аутентификация: Stack Auth (@stackframe/js)
-- Стилизация: Inline CSS
+- AI: Google Gemini AI (`@google/genai`)
+- Database: Neon PostgreSQL (Data API)
+- Authentication: Stack Auth (`@stackframe/js`)
+- Styling: Inline CSS
 
-Ключевые компоненты
+**Key Components**
+- `pages/index.js` (main app)
+  - Vocabulary state management and navigation
+  - AI sentence generation
+  - Settings and history modals
+- `lib/generateSentence.js` (AI module)
+  - Gemini API integration
+  - Level-based prompts
+- `pages/api/generate.js` (API route)
+  - Handles `POST` requests
+  - Calls AI generation
 
-1. pages/index.js (556 строк) - Основное приложение
-
-- Управление состоянием словаря
-- Навигация между словами
-- AI-генерация предложений
-- Модальные окна настроек и истории
-
-2. lib/generateSentence.js - AI модуль
-
-- Интеграция с Gemini API
-- Генерация предложений по уровню
-
-3. pages/api/generate.js - API endpoint
-
-- Обработка POST запросов
-- Вызов AI генерации
-
-Запуск проекта
-
-npm install # Установка зависимостей
-npm run dev # Запуск dev сервера
-
-# Открыть http://localhost:3000
+**Getting Started**
+- Install dependencies:
+  - `npm install`
+- Run the dev server:
+  - `npm run dev`
+- Open the app:
+  - http://localhost:3000
