@@ -6,6 +6,47 @@ const LOCAL_STORAGE_KEY = 'vocabularyData';
 const LOCAL_STORAGE_HISTORY_KEY = 'vocabularyViewedHistory';
 const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
 const LOCAL_STORAGE_RANDOM_KEY = 'vocabularyRandomOrder';
+const STACK_REFRESH_URL = 'https://api.stack-auth.com/api/v1/auth/sessions/current/refresh';
+const STACK_CLIENT_VERSION = 'js @stackframe/js@2.8.27';
+
+const tokenStore = {
+  accessToken: '',
+  refreshToken: '',
+};
+
+class TokenRefreshError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'TokenRefreshError';
+  }
+}
+
+function setTokenStoreTokens(accessToken, refreshToken) {
+  tokenStore.accessToken = accessToken ?? '';
+  tokenStore.refreshToken = refreshToken ?? '';
+}
+
+function generateRandomNonce() {
+  const globalCrypto = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  if (globalCrypto?.randomUUID) {
+    return globalCrypto.randomUUID();
+  }
+  if (globalCrypto?.getRandomValues) {
+    const buffer = new Uint32Array(4);
+    globalCrypto.getRandomValues(buffer);
+    return Array.from(buffer, (value) => value.toString(16).padStart(8, '0')).join('');
+  }
+  return Math.random().toString(36).slice(2);
+}
+
+function pickFirstString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value) {
+      return value;
+    }
+  }
+  return '';
+}
 
 export default function Home() {
   // Auth state
@@ -31,23 +72,23 @@ export default function Home() {
     // Load stored tokens if present
     try {
       if (typeof window !== 'undefined') {
-        // New explicit keys
-        const lsAccess = localStorage.getItem('AccessToken');
-        const lsRefresh = localStorage.getItem('RefreshToken');
-        const lsUserId = localStorage.getItem('AuthUserId');
-        if (lsAccess) setAccessToken(lsAccess);
-        if (lsRefresh) setRefreshToken(lsRefresh);
-        if (lsUserId) setAuthUserId(lsUserId);
-        // Back-compat: old bundled key
-        if (!lsAccess || !lsRefresh || !lsUserId) {
+        let storedAccess = localStorage.getItem('AccessToken') || '';
+        let storedRefresh = localStorage.getItem('RefreshToken') || '';
+        let storedUserId = localStorage.getItem('AuthUserId') || '';
+
+        if (!storedAccess || !storedRefresh || !storedUserId) {
           const raw = localStorage.getItem(LOCAL_STORAGE_AUTH_KEY);
           if (raw) {
             const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed.access_token === 'string') setAccessToken(parsed.access_token);
-            if (parsed && typeof parsed.refresh_token === 'string') setRefreshToken(parsed.refresh_token);
-            if (parsed && typeof parsed.user_id === 'string') setAuthUserId(parsed.user_id);
+            if (parsed && typeof parsed.access_token === 'string' && !storedAccess) storedAccess = parsed.access_token;
+            if (parsed && typeof parsed.refresh_token === 'string' && !storedRefresh) storedRefresh = parsed.refresh_token;
+            if (parsed && typeof parsed.user_id === 'string' && !storedUserId) storedUserId = parsed.user_id;
           }
         }
+
+        if (storedAccess) setAccessToken(storedAccess);
+        if (storedRefresh) setRefreshToken(storedRefresh);
+        if (storedUserId) setAuthUserId(storedUserId);
       }
     } catch (_) {}
     return () => { cancelled = true; };
@@ -107,6 +148,123 @@ export default function Home() {
   const [refreshToken, setRefreshToken] = useState('');
   const [authUserId, setAuthUserId] = useState('');
 
+  useEffect(() => {
+    setTokenStoreTokens(accessToken, refreshToken);
+  }, [accessToken, refreshToken]);
+
+  const refreshAccessToken = useCallback(async () => {
+    const currentRefreshToken = tokenStore.refreshToken || refreshToken;
+    if (!currentRefreshToken) {
+      throw new TokenRefreshError('Missing refresh token');
+    }
+
+    const headers = {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'x-stack-access-type': 'client',
+      'x-stack-client-version': STACK_CLIENT_VERSION,
+      'x-stack-override-error-status': 'true',
+      'x-stack-project-id': process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? '',
+      'x-stack-publishable-client-key': process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ?? '',
+      'x-stack-refresh-token': currentRefreshToken,
+      'x-stack-random-nonce': generateRandomNonce(),
+    };
+
+    const response = await fetch(STACK_REFRESH_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) {
+      throw new TokenRefreshError(`Failed to refresh token (status ${response.status})`);
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (error) {
+      throw new TokenRefreshError('Failed to parse refresh response');
+    }
+
+    const nextAccessToken = pickFirstString(
+      data?.accessToken,
+      data?.access_token,
+      data?.tokens?.accessToken,
+      data?.tokens?.access_token,
+      data?.data?.accessToken,
+      data?.data?.access_token,
+      data?.session?.accessToken,
+      data?.session?.access_token,
+      data?.session?.tokens?.accessToken,
+      data?.session?.tokens?.access_token,
+    );
+
+    const maybeNextRefreshToken = pickFirstString(
+      data?.refreshToken,
+      data?.refresh_token,
+      data?.tokens?.refreshToken,
+      data?.tokens?.refresh_token,
+      data?.data?.refreshToken,
+      data?.data?.refresh_token,
+      data?.session?.refreshToken,
+      data?.session?.refresh_token,
+      data?.session?.tokens?.refreshToken,
+      data?.session?.tokens?.refresh_token,
+    );
+
+    if (!nextAccessToken) {
+      throw new TokenRefreshError('Refresh response did not include an access token');
+    }
+
+    const resolvedRefreshToken = maybeNextRefreshToken || currentRefreshToken;
+
+    setTokenStoreTokens(nextAccessToken, resolvedRefreshToken);
+    setAccessToken(nextAccessToken);
+    if (resolvedRefreshToken !== refreshToken) {
+      setRefreshToken(resolvedRefreshToken);
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('AccessToken', nextAccessToken);
+        localStorage.setItem('RefreshToken', resolvedRefreshToken);
+        localStorage.setItem(
+          LOCAL_STORAGE_AUTH_KEY,
+          JSON.stringify({
+            access_token: nextAccessToken,
+            refresh_token: resolvedRefreshToken,
+            user_id: authUserId || '',
+          }),
+        );
+      } catch (_) {}
+    }
+
+    return nextAccessToken;
+  }, [authUserId, refreshToken]);
+
+  const logoutDueToRefreshFailure = useCallback(async () => {
+    setErrorMessage('');
+    try {
+      await user?.signOut({ redirectUrl: '/' });
+    } catch (_) {}
+    setUser(null);
+    setAccessToken('');
+    setRefreshToken('');
+    setAuthUserId('');
+    setTokenStoreTokens('', '');
+    setEntryList([]);
+    setIsLoading(false);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY);
+        localStorage.removeItem('AccessToken');
+        localStorage.removeItem('RefreshToken');
+        localStorage.removeItem('AuthUserId');
+      }
+    } catch (_) {}
+  }, [user]);
+
   function buildDefaultOrder(length) {
     return Array.from({ length }, (_, i) => i);
   }
@@ -137,9 +295,41 @@ export default function Home() {
   }
 
   useEffect(() => {
-    // Do not load vocabulary until authenticated either by Stack or stored token
-    if (authLoading || (!user && !accessToken)) return;
+    if (authLoading) return;
+    const effectiveAccessToken = tokenStore.accessToken || accessToken;
+    if (!user && !effectiveAccessToken) return;
+
     let isActive = true;
+
+    const fetchVocabularyFromApi = async (allowRefresh = true) => {
+      const headers = { Accept: 'application/json' };
+      const currentAccessToken = tokenStore.accessToken || accessToken;
+      if (currentAccessToken) {
+        headers.Authorization = `Bearer ${currentAccessToken}`;
+      }
+
+      const response = await fetch(VOCABULARY_URL, { method: 'GET', headers });
+
+      if (response.status === 401 && allowRefresh) {
+        if (tokenStore.refreshToken) {
+          try {
+            await refreshAccessToken();
+          } catch (refreshError) {
+            await logoutDueToRefreshFailure();
+            throw refreshError;
+          }
+          return fetchVocabularyFromApi(false);
+        }
+        await logoutDueToRefreshFailure();
+        throw new TokenRefreshError('Refresh token missing for retry');
+      }
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      return response.json();
+    };
 
     async function loadVocabulary() {
       try {
@@ -147,22 +337,12 @@ export default function Home() {
         if (cached) {
           const cachedObject = JSON.parse(cached);
           if (!isActive) return;
-          const entries = mapApiDataToEntries(cachedObject);
-          setEntryList(entries);
+          const entriesFromCache = mapApiDataToEntries(cachedObject);
+          setEntryList(entriesFromCache);
           setIsLoading(false);
         }
 
-        const headers = { Accept: 'application/json' };
-        if (accessToken) {
-          headers.Authorization = `Bearer ${accessToken}`;
-        }
-        const response = await fetch(VOCABULARY_URL, { method: 'GET', headers });
-
-        if (!response.ok) {
-          throw new Error(`Request failed with status ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = await fetchVocabularyFromApi(true);
 
         if (typeof window !== 'undefined') {
           localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
@@ -171,9 +351,13 @@ export default function Home() {
         if (!isActive) return;
         const entries = mapApiDataToEntries(data);
         setEntryList(entries);
+        setErrorMessage('');
         setIsLoading(false);
       } catch (error) {
         if (!isActive) return;
+        if (error instanceof TokenRefreshError) {
+          return;
+        }
         setErrorMessage(error instanceof Error ? error.message : 'Unknown error');
         setIsLoading(false);
       }
@@ -184,7 +368,7 @@ export default function Home() {
     return () => {
       isActive = false;
     };
-  }, [authLoading, user]);
+  }, [authLoading, user, accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
 
   // Load history on mount
   useEffect(() => {
@@ -339,7 +523,7 @@ export default function Home() {
   if (authLoading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
-        Загрузка авторизации…
+        Loading…
       </div>
     );
   }
@@ -351,8 +535,7 @@ export default function Home() {
           onSubmit={handleEmailPasswordSignIn}
           style={{ width: 'min(380px, 95vw)', border: '1px solid #e5e5e5', borderRadius: '0.75rem', padding: '1rem', boxShadow: '0 6px 18px rgba(0,0,0,0.06)' }}
         >
-          <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem' }}>Вход</h1>
-          <p style={{ marginTop: 0, marginBottom: '1rem', opacity: 0.75, fontSize: '0.9rem' }}>Авторизуйтесь, чтобы открыть словарь</p>
+          <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem', textAlign: 'center' }}>Envibe</h1>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
             <span style={{ fontSize: '0.85rem' }}>Email</span>
             <input
@@ -364,7 +547,7 @@ export default function Home() {
             />
           </label>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
-            <span style={{ fontSize: '0.85rem' }}>Пароль</span>
+            <span style={{ fontSize: '0.85rem' }}>Password</span>
             <input
               type="password"
               required
@@ -378,14 +561,10 @@ export default function Home() {
           )}
           <button
             type="submit"
-            style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}
+            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#000000ff', color: '#ffffff', cursor: 'pointer' }}
           >
-            Войти
+            Sign In
           </button>
-
-          <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', opacity: 0.7 }}>
-            Есть аккаунт: используйте Email и Пароль, созданные в Stack Auth
-          </div>
         </form>
       </div>
     );
@@ -418,7 +597,7 @@ export default function Home() {
         boxSizing: 'border-box',
       }}
     >
-      {/* Top controls */}
+      {/* Settings */}
       <button
         type="button"
         onClick={(event) => {
@@ -456,6 +635,7 @@ export default function Home() {
             setAccessToken('');
             setRefreshToken('');
             setAuthUserId('');
+            setTokenStoreTokens('', '');
           } catch (_) {}
         }}
         style={{
@@ -490,10 +670,10 @@ export default function Home() {
           transform: 'translateY(-50%)',
           padding: '0.6rem 0.8rem',
           borderRadius: '9999px',
-          border: '1px solid #ccc',
+          border: 'none',
           background: '#fff',
           cursor: 'pointer',
-          fontSize: '1.1rem',
+          fontSize: '1.2rem',
           lineHeight: 1,
         }}
         aria-label="Previous"
@@ -515,10 +695,10 @@ export default function Home() {
           transform: 'translateY(-50%)',
           padding: '0.6rem 0.8rem',
           borderRadius: '9999px',
-          border: '1px solid #ccc',
+          border: 'none',
           background: '#fff',
           cursor: 'pointer',
-          fontSize: '1.1rem',
+          fontSize: '1.2rem',
           lineHeight: 1,
         }}
         aria-label="Next"
