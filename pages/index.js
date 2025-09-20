@@ -414,6 +414,8 @@ export default function Home() {
         padding: '2rem',
         textAlign: 'center',
         position: 'relative',
+        fontFamily: 'Inter, sans-serif',
+        boxSizing: 'border-box',
       }}
     >
       {/* Top controls */}
@@ -532,8 +534,18 @@ export default function Home() {
           </>
         )}
         {!isLoading && !errorMessage && currentEntry && (
-          <>
-            <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>{displayWord}</h1>
+          <div
+            style={{
+              position: 'relative',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '0.5rem',
+              width: 'min(420px, calc(100vw - 4rem))',
+              boxSizing: 'border-box',
+            }}
+          >
+            <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', color: '#19067a' }}>{displayWord}</h1>
             <p style={{ fontSize: '1.5rem', opacity: 0.8 }}>{displayTranslation}</p>
             <button
               type="button"
@@ -551,16 +563,33 @@ export default function Home() {
             >
               {isGenerating ? 'Generating…' : 'Generate Sentence'}
             </button>
-          </>
-        )}
-        {!isLoading && !errorMessage && !currentEntry && <p>No vocabulary available.</p>}
-
-        {/* Generated sentence */}
-        {generatedSentence && (
-          <div style={{ marginTop: '1rem', fontSize: '1rem', padding: '0.75rem 1rem', border: '1px solid #eee', borderRadius: '0.5rem' }}>
-            {generatedSentence}
+            {generatedSentence && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 1rem)',
+                  left: 0,
+                  right: 0,
+                  margin: '0 auto',
+                  fontSize: '1rem',
+                  padding: '0.75rem 1.5rem',
+                  border: '1px solid #eee',
+                  borderRadius: '0.5rem',
+                  background: '#fff',
+                  textAlign: 'center',
+                  width: '100%',
+                  maxWidth: '100%',
+                  boxSizing: 'border-box',
+                  color: '#19067a',
+                  lineHeight: 1.6,
+                }}
+              >
+                {generatedSentence}
+              </div>
+            )}
           </div>
         )}
+        {!isLoading && !errorMessage && !currentEntry && <p>No vocabulary available.</p>}
       </div>
 
       {/* History overlay */}
@@ -648,17 +677,17 @@ export default function Home() {
               <button type="button" onClick={() => setIsSettingsOpen(false)} style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer' }}>Close</button>
             </div>
             <div style={{ padding: '1rem', display: 'grid', gap: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0' }}>
                 <div>
-                  <div style={{ fontWeight: 600 }}>History</div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>History</div>
                   <div style={{ opacity: 0.7, fontSize: '0.9rem' }}>View the list of viewed words</div>
                 </div>
                 <button type="button" onClick={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }} style={{ padding: '0.4rem 0.7rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer' }}>Open</button>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
-                  <div style={{ fontWeight: 600 }}>Reset cache</div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Reset cache</div>
                   <div style={{ opacity: 0.7, fontSize: '0.9rem' }}>Clear cached vocabulary and reload</div>
                 </div>
                 <button
@@ -678,9 +707,9 @@ export default function Home() {
                 </button>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0' }}>
                 <div>
-                  <div style={{ fontWeight: 600 }}>English level</div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>English level</div>
                   <div style={{ opacity: 0.7, fontSize: '0.9rem' }}>Level used for AI sentence generation</div>
                 </div>
                 <select
@@ -702,8 +731,8 @@ export default function Home() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                 <div>
-                  <div style={{ fontWeight: 600 }}>Random order</div>
-                  <div style={{ opacity: 0.7, fontSize: '0.9rem' }}>Show words in random order instead of sequential</div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Random order</div>
+                  <div style={{ textAlign: 'left', opacity: 0.7, fontSize: '0.9rem' }}>Show words in random order instead of sequential</div>
                 </div>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                   <input
@@ -718,7 +747,9 @@ export default function Home() {
                       setRandomHistoryPos(-1);
                     }}
                   />
-                  <span>{isRandomOrder ? 'On' : 'Off'}</span>
+                  <span style={{marginRight: '0.5rem'}}>
+                    {isRandomOrder ? 'On' : 'Off'}
+                  </span>
                 </label>
               </div>
             </div>
