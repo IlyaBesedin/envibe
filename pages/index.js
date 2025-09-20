@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { stackClientApp } from '../stack/client';
 
 const VOCABULARY_URL = 'https://app-orange-meadow-73857621.dpl.myneon.app/vocabulary';
@@ -55,6 +55,7 @@ export default function Home() {
   const [authError, setAuthError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   // Check auth on mount
   useEffect(() => {
@@ -142,6 +143,8 @@ export default function Home() {
   const [orderIndices, setOrderIndices] = useState([]);
   const [randomHistory, setRandomHistory] = useState([]); // indices visited in random mode
   const [randomHistoryPos, setRandomHistoryPos] = useState(-1); // pointer into randomHistory
+  const initialPositionResolvedRef = useRef(false);
+  const [isHistoryLoaded, setIsHistoryLoaded] = useState(false);
   // Auth tokens
   const LOCAL_STORAGE_AUTH_KEY = 'stackAuthTokens';
   const [accessToken, setAccessToken] = useState('');
@@ -255,12 +258,18 @@ export default function Home() {
     setTokenStoreTokens('', '');
     setEntryList([]);
     setIsLoading(false);
+    setViewedHistory([]);
+    setRandomHistory([]);
+    setRandomHistoryPos(-1);
+    initialPositionResolvedRef.current = false;
+    setIsHistoryLoaded(false);
     try {
       if (typeof window !== 'undefined') {
         localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY);
         localStorage.removeItem('AccessToken');
         localStorage.removeItem('RefreshToken');
         localStorage.removeItem('AuthUserId');
+        localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
       }
     } catch (_) {}
   }, [user]);
@@ -372,7 +381,10 @@ export default function Home() {
 
   // Load history on mount
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') {
+      setIsHistoryLoaded(true);
+      return;
+    }
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
       if (raw) {
@@ -387,20 +399,69 @@ export default function Home() {
       if (savedRandom === 'true') setIsRandomOrder(true);
     } catch (_) {
       // ignore malformed
+    } finally {
+      setIsHistoryLoaded(true);
     }
   }, [authLoading, user, accessToken]);
 
-  // Rebuild navigation order whenever entries change
+  // Rebuild navigation order whenever entries or history change
   useEffect(() => {
     if (entryList.length === 0) {
       setOrderIndices([]);
+      initialPositionResolvedRef.current = false;
       return;
     }
+
     const ord = buildDefaultOrder(entryList.length);
     setOrderIndices(ord);
-    setCurrentIndex((prevIndex) => (ord.length > 0 ? (ord.includes(prevIndex) ? prevIndex : ord[0]) : prevIndex));
+
+    if (!isHistoryLoaded) {
+      return;
+    }
+
+    if (!initialPositionResolvedRef.current) {
+      let targetIndex = -1;
+
+      if (viewedHistory.length > 0) {
+        let targetEntry = null;
+        if (isRandomOrder) {
+          targetEntry = viewedHistory[viewedHistory.length - 1];
+        } else {
+          targetEntry = viewedHistory.reduce((latest, item) => {
+            const latestTime = typeof latest?.viewedAt === 'number' ? latest.viewedAt : -Infinity;
+            const currentTime = typeof item?.viewedAt === 'number' ? item.viewedAt : -Infinity;
+            if (currentTime >= latestTime) return item;
+            return latest;
+          }, null);
+          if (!targetEntry) {
+            targetEntry = viewedHistory[viewedHistory.length - 1];
+          }
+        }
+
+        if (targetEntry) {
+          if (typeof targetEntry.id === 'number') {
+            targetIndex = entryList.findIndex((entry) => entry.id === targetEntry.id);
+          }
+          if (targetIndex === -1 && targetEntry.word) {
+            targetIndex = entryList.findIndex((entry) => entry.word === targetEntry.word);
+          }
+        }
+      }
+
+      const fallbackIndex = ord.length > 0 ? ord[0] : 0;
+      const resolvedIndex = targetIndex >= 0 ? targetIndex : fallbackIndex;
+      setCurrentIndex(resolvedIndex);
+      if (isRandomOrder) {
+        setRandomHistory([resolvedIndex]);
+        setRandomHistoryPos(0);
+      }
+      initialPositionResolvedRef.current = true;
+      return;
+    }
+
+    setCurrentIndex((prevIndex) => (ord.includes(prevIndex) ? prevIndex : ord[0]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entryList]);
+  }, [entryList, viewedHistory, isHistoryLoaded, isRandomOrder]);
 
   // Seed random history when random mode is enabled
   useEffect(() => {
@@ -522,7 +583,17 @@ export default function Home() {
   // Gate: show auth UI first
   if (authLoading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
+      <div
+        style={{
+          minHeight: '100dvh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '1rem',
+          padding: 'env(safe-area-inset-top) 1rem 1rem',
+          boxSizing: 'border-box',
+        }}
+      >
         Loading…
       </div>
     );
@@ -530,10 +601,23 @@ export default function Home() {
 
   if (!user && !accessToken) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+      <div
+        style={{
+          minHeight: '100dvh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '2rem',
+          paddingTop: 'calc(2rem + env(safe-area-inset-top))',
+          paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))',
+          paddingLeft: 'calc(2rem + env(safe-area-inset-left))',
+          paddingRight: 'calc(2rem + env(safe-area-inset-right))',
+          boxSizing: 'border-box',
+        }}
+      >
         <form
           onSubmit={handleEmailPasswordSignIn}
-          style={{ width: 'min(380px, 95vw)', border: '1px solid #e5e5e5', borderRadius: '0.75rem', padding: '1rem', boxShadow: '0 6px 18px rgba(0,0,0,0.06)' }}
+          style={{ width: 'min(380px, 95vw)', border: '1px solid #e5e5e5', borderRadius: '0.75rem', padding: '1rem', boxShadow: '0 6px 18px rgba(0,0,0,0.06)', background: '#fff' }}
         >
           <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem', textAlign: 'center' }}>Envibe</h1>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
@@ -543,25 +627,47 @@ export default function Home() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              style={{ padding: '0.5rem 0.6rem', border: '1px solid #ccc', borderRadius: '0.4rem' }}
+              style={{ padding: '0.5rem 0.6rem', border: '1px solid #ccc', borderRadius: '0.4rem', fontSize: '16px', boxSizing: 'border-box' }}
             />
           </label>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
             <span style={{ fontSize: '0.85rem' }}>Password</span>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{ padding: '0.5rem 0.6rem', border: '1px solid #ccc', borderRadius: '0.4rem' }}
-            />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type={isPasswordVisible ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ padding: '0.5rem 2.4rem 0.5rem 0.6rem', border: '1px solid #ccc', borderRadius: '0.4rem', fontSize: '16px', boxSizing: 'border-box', width: '100%' }}
+              />
+              <button
+                type="button"
+                onClick={() => setIsPasswordVisible((prev) => !prev)}
+                style={{
+                  position: 'absolute',
+                  right: '0.4rem',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.2rem',
+                  fontSize: '1rem',
+                  lineHeight: 1,
+                  color: '#555',
+                  WebkitAppearance: 'none',
+                  appearance: 'none',
+                }}
+                aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
+              >
+                {isPasswordVisible ? 'H' : 'S'}
+              </button>
+            </div>
           </label>
           {authError && (
             <div style={{ color: '#b00020', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{authError}</div>
           )}
           <button
             type="submit"
-            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#000000ff', color: '#ffffff', cursor: 'pointer' }}
+            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#000000ff', color: '#ffffff', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
           >
             Sign In
           </button>
@@ -585,12 +691,16 @@ export default function Home() {
         }
       }}
       style={{
-        minHeight: '100vh',
+        minHeight: '100dvh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
         padding: '2rem',
+        paddingTop: 'calc(2rem + env(safe-area-inset-top))',
+        paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))',
+        paddingLeft: 'calc(2rem + env(safe-area-inset-left))',
+        paddingRight: 'calc(2rem + env(safe-area-inset-right))',
         textAlign: 'center',
         position: 'relative',
         fontFamily: 'Inter, sans-serif',
@@ -606,14 +716,17 @@ export default function Home() {
         }}
         style={{
           position: 'absolute',
-          top: '1rem',
-          right: '1rem',
+          top: 'calc(env(safe-area-inset-top) + 1rem)',
+          right: 'calc(env(safe-area-inset-right) + 1rem)',
           padding: '0.4rem 0.7rem',
           borderRadius: '0.4rem',
           border: '1px solid #ccc',
           background: '#fff',
           cursor: 'pointer',
           fontSize: '0.85rem',
+          color: '#111',
+          WebkitAppearance: 'none',
+          appearance: 'none',
         }}
         aria-label="Open settings"
       >
@@ -632,22 +745,32 @@ export default function Home() {
             try { localStorage.removeItem('AccessToken'); } catch (_) {}
             try { localStorage.removeItem('RefreshToken'); } catch (_) {}
             try { localStorage.removeItem('AuthUserId'); } catch (_) {}
+            try { localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY); } catch (_) {}
             setAccessToken('');
             setRefreshToken('');
             setAuthUserId('');
             setTokenStoreTokens('', '');
+            setViewedHistory([]);
+            setEntryList([]);
+            setRandomHistory([]);
+            setRandomHistoryPos(-1);
+            initialPositionResolvedRef.current = false;
+            setIsHistoryLoaded(false);
           } catch (_) {}
         }}
         style={{
           position: 'absolute',
-          top: '1rem',
-          left: '1rem',
+          top: 'calc(env(safe-area-inset-top) + 1rem)',
+          left: 'calc(env(safe-area-inset-left) + 1rem)',
           padding: '0.4rem 0.7rem',
           borderRadius: '0.4rem',
           border: '1px solid #ccc',
           background: '#fff',
           cursor: 'pointer',
           fontSize: '0.85rem',
+          color: '#111',
+          WebkitAppearance: 'none',
+          appearance: 'none',
         }}
         aria-label="Sign out"
       >
@@ -675,6 +798,9 @@ export default function Home() {
           cursor: 'pointer',
           fontSize: '1.2rem',
           lineHeight: 1,
+          color: '#111',
+          WebkitAppearance: 'none',
+          appearance: 'none',
         }}
         aria-label="Previous"
       >
@@ -700,6 +826,9 @@ export default function Home() {
           cursor: 'pointer',
           fontSize: '1.2rem',
           lineHeight: 1,
+          color: '#111',
+          WebkitAppearance: 'none',
+          appearance: 'none',
         }}
         aria-label="Next"
       >
