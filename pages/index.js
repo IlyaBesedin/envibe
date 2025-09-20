@@ -867,6 +867,9 @@ export default function Home() {
                 background: '#fff',
                 cursor: 'pointer',
                 fontSize: '0.95rem',
+                color: '#111',
+                WebkitAppearance: 'none',
+                appearance: 'none',
               }}
               aria-label="Generate sentence"
             >
@@ -932,14 +935,14 @@ export default function Home() {
                       }
                     } catch (_) {}
                   }}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer' }}
+                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Clear
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsHistoryOpen(false)}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer' }}
+                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Close
                 </button>
@@ -983,7 +986,13 @@ export default function Home() {
           <div style={{ background: '#fff', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid #eee' }}>
               <strong>Settings</strong>
-              <button type="button" onClick={() => setIsSettingsOpen(false)} style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer' }}>Close</button>
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+              >
+                Close
+              </button>
             </div>
             <div style={{ padding: '1rem', display: 'grid', gap: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0' }}>
@@ -991,7 +1000,13 @@ export default function Home() {
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>History</div>
                   <div style={{ opacity: 0.7, fontSize: '0.9rem' }}>View the list of viewed words</div>
                 </div>
-                <button type="button" onClick={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }} style={{ padding: '0.4rem 0.7rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer' }}>Open</button>
+                <button
+                  type="button"
+                  onClick={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }}
+                  style={{ padding: '0.4rem 0.7rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+                >
+                  Open
+                </button>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
@@ -1010,7 +1025,7 @@ export default function Home() {
                     } catch (_) {}
                     window.location.reload();
                   }}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer' }}
+                  style={{ padding: '0.4rem 0.7rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Reset
                 </button>
