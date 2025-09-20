@@ -28,7 +28,7 @@ envibe/
 
 **Features**
 - Vocabulary management:
-  - Fetches data from Neon DB: https://app-orange-meadow-73857621.dpl.myneon.app/vocabulary
+  - Fetches data from Neon DB
   - Data format: `[{ id, key, translate }]`
   - Local caching in `localStorage`
 - Navigation modes:
@@ -49,9 +49,9 @@ envibe/
 
 **Tech Stack**
 - Frontend: Next.js 15.4.5, React 19.1.1
-- AI: Google Gemini AI (`@google/genai`)
+- AI: Google Gemini AI
 - Database: Neon PostgreSQL (Data API)
-- Authentication: Stack Auth (`@stackframe/js`)
+- Authentication: Stack Auth
 - Styling: Inline CSS
 
 **Key Components**
