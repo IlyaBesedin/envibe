@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { stackClientApp } from '../stack/client';
+import { SENTENCE_TOPIC_OPTIONS } from '../lib/sentenceTopics';
 
 const VOCABULARY_URL = 'https://app-orange-meadow-73857621.dpl.myneon.app/vocabulary';
 const LOCAL_STORAGE_KEY = 'vocabularyData';
@@ -137,6 +138,7 @@ export default function Home() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedLevel, setSelectedLevel] = useState('B2');
+  const [selectedTopic, setSelectedTopic] = useState('random');
   const [generatedSentence, setGeneratedSentence] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRandomOrder, setIsRandomOrder] = useState(false);
@@ -145,6 +147,9 @@ export default function Home() {
   const [randomHistoryPos, setRandomHistoryPos] = useState(-1); // pointer into randomHistory
   const initialPositionResolvedRef = useRef(false);
   const [isHistoryLoaded, setIsHistoryLoaded] = useState(false);
+  const [isLearningMode, setIsLearningMode] = useState(false);
+  const [learningIndex, setLearningIndex] = useState(0);
+  const [revealedTranslations, setRevealedTranslations] = useState({});
   // Auth tokens
   const LOCAL_STORAGE_AUTH_KEY = 'stackAuthTokens';
   const [accessToken, setAccessToken] = useState('');
@@ -473,8 +478,38 @@ export default function Home() {
     }
   }, [isRandomOrder]);
 
+  const learningEntries = useMemo(
+    () => viewedHistory
+      .filter((item) => item && item.word && item.translation)
+      .map(({ word, translation, id }) => ({
+        word,
+        translation,
+        id,
+      })),
+    [viewedHistory],
+  );
+
+  useEffect(() => {
+    if (!isLearningMode) return;
+    if (learningEntries.length === 0) {
+      setLearningIndex(0);
+      return;
+    }
+    setLearningIndex((prev) => {
+      if (prev >= learningEntries.length) {
+        return 0;
+      }
+      return prev;
+    });
+  }, [isLearningMode, learningEntries.length]);
+
+  useEffect(() => {
+    setRevealedTranslations({});
+  }, [isLearningMode]);
+
   // Track viewed words whenever the current entry changes
   useEffect(() => {
+    if (isLearningMode) return;
     if (typeof window === 'undefined') return;
     if (entryList.length === 0) return;
     const entry = entryList[currentIndex];
@@ -496,15 +531,20 @@ export default function Home() {
       } catch (_) {}
       return next;
     });
-  }, [currentIndex, entryList]);
+  }, [currentIndex, entryList, isLearningMode]);
 
   // Clear generated sentence when navigating to a different word
   useEffect(() => {
     setGeneratedSentence('');
     setIsGenerating(false);
-  }, [currentIndex]);
+  }, [currentIndex, learningIndex, isLearningMode]);
 
   const handleAdvance = useCallback(() => {
+    if (isLearningMode) {
+      if (learningEntries.length === 0) return;
+      setLearningIndex((prev) => (prev + 1) % learningEntries.length);
+      return;
+    }
     if (isLoading) return;
     if (isRandomOrder) {
       if (entryList.length === 0) return;
@@ -531,9 +571,27 @@ export default function Home() {
     if (pos === -1) return;
     const next = orderIndices[(pos + 1) % orderIndices.length];
     setCurrentIndex(next);
-  }, [isLoading, entryList.length, orderIndices, currentIndex, isRandomOrder, randomHistory, randomHistoryPos]);
+  }, [
+    isLearningMode,
+    learningEntries.length,
+    isLoading,
+    entryList.length,
+    orderIndices,
+    currentIndex,
+    isRandomOrder,
+    randomHistory,
+    randomHistoryPos,
+  ]);
 
   const handleBack = useCallback(() => {
+    if (isLearningMode) {
+      if (learningEntries.length === 0) return;
+      setLearningIndex((prev) => {
+        if (learningEntries.length === 0) return prev;
+        return (prev - 1 + learningEntries.length) % learningEntries.length;
+      });
+      return;
+    }
     if (isLoading) return;
     if (isRandomOrder) {
       if (entryList.length === 0) return;
@@ -550,22 +608,44 @@ export default function Home() {
     if (pos === -1) return;
     const next = orderIndices[(pos - 1 + orderIndices.length) % orderIndices.length];
     setCurrentIndex(next);
-  }, [isLoading, entryList.length, orderIndices, currentIndex, isRandomOrder, randomHistoryPos, randomHistory]);
+  }, [
+    isLearningMode,
+    learningEntries.length,
+    isLoading,
+    entryList.length,
+    orderIndices,
+    currentIndex,
+    isRandomOrder,
+    randomHistoryPos,
+    randomHistory,
+  ]);
 
-  const currentEntry = entryList.length > 0 ? entryList[currentIndex] : null;
+  const activeEntries = isLearningMode ? learningEntries : entryList;
+  const activeIndex = isLearningMode ? learningIndex : currentIndex;
+  const currentEntry = activeEntries.length > 0 ? activeEntries[activeIndex] : null;
   const displayWord = currentEntry ? currentEntry.word : '';
   const displayTranslation = currentEntry ? currentEntry.translation : '';
+  const isTranslationRevealed = !isLearningMode || !currentEntry
+    ? true
+    : Boolean(revealedTranslations[currentEntry.word]);
+  const isLearningAvailable = learningEntries.length > 0;
+
+  useEffect(() => {
+    if (isLearningMode && !isLearningAvailable) {
+      setIsLearningMode(false);
+    }
+  }, [isLearningMode, isLearningAvailable]);
 
   async function handleGenerateSentence(event) {
     event.stopPropagation();
-    if (!displayWord || !selectedLevel || isGenerating) return;
+    if (!displayWord || !selectedLevel || !selectedTopic || isGenerating) return;
     try {
       setIsGenerating(true);
       setGeneratedSentence('');
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: displayWord, level: selectedLevel }),
+        body: JSON.stringify({ word: displayWord, level: selectedLevel, topic: selectedTopic }),
       });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -667,7 +747,7 @@ export default function Home() {
           )}
           <button
             type="submit"
-            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#000000ff', color: '#ffffff', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
+            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#3d3d3dff', color: '#ffffff', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
           >
             Sign In
           </button>
@@ -756,6 +836,10 @@ export default function Home() {
             setRandomHistoryPos(-1);
             initialPositionResolvedRef.current = false;
             setIsHistoryLoaded(false);
+            setIsLearningMode(false);
+            setLearningIndex(0);
+            setRevealedTranslations({});
+            setSelectedTopic('random');
           } catch (_) {}
         }}
         style={{
@@ -774,10 +858,49 @@ export default function Home() {
         }}
         aria-label="Sign out"
       >
-        Sign out
+        Sign Out
       </button>
 
-      
+      {/* Learning mode */}
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          if (!isLearningAvailable) {
+            if (typeof window !== 'undefined') {
+              window.alert('Learning Mode will be available once you have viewed a few words in the dictionary');
+            }
+            return;
+          }
+          setIsLearningMode((prev) => {
+            const next = !prev;
+            if (next) {
+              setLearningIndex(0);
+            }
+            return next;
+          });
+        }}
+        aria-pressed={isLearningMode}
+        aria-disabled={!isLearningAvailable}
+        style={{
+          position: 'absolute',
+          top: 'calc(env(safe-area-inset-top) + 1rem)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '0.4rem 0.9rem',
+          borderRadius: '0.4rem',
+          border: `1px solid ${isLearningMode ? '#19067a' : '#ccc'}`,
+          background: isLearningMode ? '#19067a' : '#fff',
+          color: isLearningMode ? '#fff' : '#111',
+          cursor: isLearningAvailable ? 'pointer' : 'not-allowed',
+          fontSize: '0.85rem',
+          WebkitAppearance: 'none',
+          appearance: 'none',
+          opacity: isLearningAvailable ? 1 : 0.6,
+        }}
+      >
+        Learning Mode
+      </button>
 
       {/* Left arrow */}
       <button
@@ -849,13 +972,58 @@ export default function Home() {
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: '0.5rem',
+              gap: '1.5rem',
               width: 'min(420px, calc(100vw - 4rem))',
               boxSizing: 'border-box',
             }}
           >
             <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', color: '#19067a' }}>{displayWord}</h1>
-            <p style={{ fontSize: '1.5rem', opacity: 0.8 }}>{displayTranslation}</p>
+            <div
+              style={{
+                width: '100%',
+                padding: '24px 3rem',
+                boxSizing: 'border-box',
+                display: 'flex',
+                justifyContent: 'center',
+              }}
+            >
+              {isLearningMode && currentEntry && !isTranslationRevealed ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!currentEntry?.word) return;
+                    setRevealedTranslations((prev) => ({ ...prev, [currentEntry.word]: true }));
+                  }}
+                  style={{
+                    fontSize: '0.95rem',
+                    padding: '0.5rem 0.9rem',
+                    borderRadius: '0.4rem',
+                    border: '1px solid #ccc',
+                    background: '#fff',
+                    color: '#111',
+                    cursor: 'pointer',
+                    WebkitAppearance: 'none',
+                    appearance: 'none',
+                  }}
+                >
+                  Show translation
+                </button>
+              ) : (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '1.5rem',
+                    opacity: 0.8,
+                    lineHeight: 1.4,
+                    textAlign: 'center',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {displayTranslation}
+                </p>
+              )}
+            </div>
             <button
               type="button"
               onClick={handleGenerateSentence}
@@ -942,7 +1110,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setIsHistoryOpen(false)}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#3d3d3dff', borderRadius: '0.4rem', cursor: 'pointer', color: '#fff', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Close
                 </button>
@@ -969,7 +1137,7 @@ export default function Home() {
       {/* Settings overlay */}
       {isSettingsOpen && (
         <div
-          onClick={(e) => e.stopPropagation()}
+          onClick={() => setIsSettingsOpen(false)}
           style={{
             position: 'fixed',
             inset: 0,
@@ -983,13 +1151,16 @@ export default function Home() {
           aria-modal="true"
           aria-label="Settings"
         >
-          <div style={{ background: '#fff', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid #eee' }}>
               <strong>Settings</strong>
               <button
                 type="button"
                 onClick={() => setIsSettingsOpen(false)}
-                style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+                style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#3d3d3dff', borderRadius: '0.4rem', cursor: 'pointer', color: '#fff', WebkitAppearance: 'none', appearance: 'none' }}
               >
                 Close
               </button>
@@ -1049,6 +1220,24 @@ export default function Home() {
                 >
                   {['A1','A2','B1','B2','C1','C2'].map((lvl) => (
                     <option key={lvl} value={lvl}>{lvl}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0' }}>
+                <div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Sentence topic</div>
+                  <div style={{ textAlign: 'left', opacity: 0.7, fontSize: '0.9rem' }}>Pick a topic for generated sentences</div>
+                </div>
+                <select
+                  value={selectedTopic}
+                  onChange={(e) => setSelectedTopic(e.target.value)}
+                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid #ccc', background: '#fff', minWidth: '9rem' }}
+                >
+                  {SENTENCE_TOPIC_OPTIONS.map((topic) => (
+                    <option key={topic.value} value={topic.value}>
+                      {topic.label}
+                    </option>
                   ))}
                 </select>
               </div>
