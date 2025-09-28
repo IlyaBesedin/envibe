@@ -747,7 +747,7 @@ export default function Home() {
           )}
           <button
             type="submit"
-            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#19067a', color: '#ffffff', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
+            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#3d3d3dff', color: '#ffffff', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
           >
             Sign In
           </button>
@@ -1110,7 +1110,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setIsHistoryOpen(false)}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#3d3d3dff', borderRadius: '0.4rem', cursor: 'pointer', color: '#fff', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Close
                 </button>
@@ -1137,7 +1137,7 @@ export default function Home() {
       {/* Settings overlay */}
       {isSettingsOpen && (
         <div
-          onClick={(e) => e.stopPropagation()}
+          onClick={() => setIsSettingsOpen(false)}
           style={{
             position: 'fixed',
             inset: 0,
@@ -1151,13 +1151,16 @@ export default function Home() {
           aria-modal="true"
           aria-label="Settings"
         >
-          <div style={{ background: '#fff', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid #eee' }}>
               <strong>Settings</strong>
               <button
                 type="button"
                 onClick={() => setIsSettingsOpen(false)}
-                style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+                style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#3d3d3dff', borderRadius: '0.4rem', cursor: 'pointer', color: '#fff', WebkitAppearance: 'none', appearance: 'none' }}
               >
                 Close
               </button>
