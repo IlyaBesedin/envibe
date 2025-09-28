@@ -7,13 +7,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { word, level } = req.body || {};
-    const sentence = await generateSentence({ word, level });
+    const { word, level, topic } = req.body || {};
+    const sentence = await generateSentence({ word, level, topic: topic || 'random' });
     return res.status(200).json({ sentence });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return res.status(500).json({ error: message });
   }
 }
-
 
