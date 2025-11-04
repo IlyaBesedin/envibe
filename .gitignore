@@ -146,3 +146,6 @@ typings/
 # Yarn Integrity file
 .yarn-integrity
 .vercel
+
+# Neon Auth Module
+neon-auth-nextjs-template/
