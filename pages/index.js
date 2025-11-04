@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { stackClientApp } from '../stack/client';
 import { SENTENCE_TOPIC_OPTIONS } from '../lib/sentenceTopics';
 
-const VOCABULARY_URL = 'https://app-orange-meadow-73857621.dpl.myneon.app/vocabulary';
+const VOCABULARY_URL = 'https://ep-floral-rain-a2efqgrr.apirest.eu-central-1.aws.neon.tech/neondb/rest/v1/vocabulary';
 const LOCAL_STORAGE_KEY = 'vocabularyData';
 const LOCAL_STORAGE_HISTORY_KEY = 'vocabularyViewedHistory';
 const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
