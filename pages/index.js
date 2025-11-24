@@ -324,7 +324,7 @@ export default function Home() {
 
       const response = await fetch(VOCABULARY_URL, { method: 'GET', headers });
 
-      if (response.status === 401 && allowRefresh) {
+      if (response.status === 400 && allowRefresh) {
         if (tokenStore.refreshToken) {
           try {
             await refreshAccessToken();
