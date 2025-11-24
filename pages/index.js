@@ -7,6 +7,7 @@ const LOCAL_STORAGE_KEY = 'vocabularyData';
 const LOCAL_STORAGE_HISTORY_KEY = 'vocabularyViewedHistory';
 const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
 const LOCAL_STORAGE_RANDOM_KEY = 'vocabularyRandomOrder';
+const LOCAL_STORAGE_THEME_KEY = 'envibeTheme';
 const STACK_REFRESH_URL = 'https://api.stack-auth.com/api/v1/auth/sessions/current/refresh';
 const STACK_CLIENT_VERSION = 'js @stackframe/js@2.8.27';
 
@@ -57,6 +58,7 @@ export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [theme, setTheme] = useState('light');
 
   // Check auth on mount
   useEffect(() => {
@@ -95,6 +97,28 @@ export default function Home() {
     } catch (_) {}
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedTheme = localStorage.getItem(LOCAL_STORAGE_THEME_KEY);
+    if (storedTheme === 'light' || storedTheme === 'dark') {
+      setTheme(storedTheme);
+      return;
+    }
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setTheme(prefersDark ? 'dark' : 'light');
+  }, []);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(LOCAL_STORAGE_THEME_KEY, theme);
+      }
+    } catch (_) {}
+  }, [theme]);
 
   async function handleEmailPasswordSignIn(event) {
     event?.preventDefault?.();
@@ -692,12 +716,14 @@ export default function Home() {
           paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))',
           paddingLeft: 'calc(2rem + env(safe-area-inset-left))',
           paddingRight: 'calc(2rem + env(safe-area-inset-right))',
+          background: 'var(--page-bg)',
+          color: 'var(--text-primary)',
           boxSizing: 'border-box',
         }}
       >
         <form
           onSubmit={handleEmailPasswordSignIn}
-          style={{ width: 'min(380px, 95vw)', border: '1px solid #e5e5e5', borderRadius: '0.75rem', padding: '1rem', boxShadow: '0 6px 18px rgba(0,0,0,0.06)', background: '#fff' }}
+          style={{ width: 'min(380px, 95vw)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '1rem', boxShadow: 'var(--shadow-elevated)', background: 'var(--surface)', color: 'var(--text-primary)' }}
         >
           <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem', textAlign: 'center' }}>Envibe</h1>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
@@ -707,7 +733,7 @@ export default function Home() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              style={{ padding: '0.5rem 0.6rem', border: '1px solid #ccc', borderRadius: '0.4rem', fontSize: '16px', boxSizing: 'border-box' }}
+              style={{ padding: '0.5rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '0.4rem', fontSize: '16px', boxSizing: 'border-box', background: 'var(--input-bg)', color: 'var(--text-primary)' }}
             />
           </label>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
@@ -718,7 +744,7 @@ export default function Home() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                style={{ padding: '0.5rem 2.4rem 0.5rem 0.6rem', border: '1px solid #ccc', borderRadius: '0.4rem', fontSize: '16px', boxSizing: 'border-box', width: '100%' }}
+                style={{ padding: '0.5rem 2.4rem 0.5rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '0.4rem', fontSize: '16px', boxSizing: 'border-box', width: '100%', background: 'var(--input-bg)', color: 'var(--text-primary)' }}
               />
               <button
                 type="button"
@@ -732,7 +758,7 @@ export default function Home() {
                   padding: '0.2rem',
                   fontSize: '1rem',
                   lineHeight: 1,
-                  color: '#555',
+                  color: 'var(--text-secondary)',
                   WebkitAppearance: 'none',
                   appearance: 'none',
                 }}
@@ -743,11 +769,11 @@ export default function Home() {
             </div>
           </label>
           {authError && (
-            <div style={{ color: '#b00020', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{authError}</div>
+            <div style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{authError}</div>
           )}
           <button
             type="submit"
-            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid #ccc', background: '#3d3d3dff', color: '#ffffff', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
+            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
           >
             Sign In
           </button>
@@ -784,6 +810,9 @@ export default function Home() {
         textAlign: 'center',
         position: 'relative',
         fontFamily: 'Inter, sans-serif',
+        background: 'var(--page-bg)',
+        color: 'var(--text-primary)',
+        transition: 'background-color 0.25s ease, color 0.25s ease',
         boxSizing: 'border-box',
       }}
     >
@@ -800,11 +829,11 @@ export default function Home() {
           right: 'calc(env(safe-area-inset-right) + 1rem)',
           padding: '0.4rem 0.7rem',
           borderRadius: '0.4rem',
-          border: '1px solid #ccc',
-          background: '#fff',
+          border: '1px solid var(--border-color)',
+          background: 'var(--surface)',
           cursor: 'pointer',
           fontSize: '0.85rem',
-          color: '#111',
+          color: 'var(--text-primary)',
           WebkitAppearance: 'none',
           appearance: 'none',
         }}
@@ -848,11 +877,11 @@ export default function Home() {
           left: 'calc(env(safe-area-inset-left) + 1rem)',
           padding: '0.4rem 0.7rem',
           borderRadius: '0.4rem',
-          border: '1px solid #ccc',
-          background: '#fff',
+          border: '1px solid var(--border-color)',
+          background: 'var(--surface)',
           cursor: 'pointer',
           fontSize: '0.85rem',
-          color: '#111',
+          color: 'var(--text-primary)',
           WebkitAppearance: 'none',
           appearance: 'none',
         }}
@@ -889,9 +918,9 @@ export default function Home() {
           transform: 'translateX(-50%)',
           padding: '0.4rem 0.9rem',
           borderRadius: '0.4rem',
-          border: `1px solid ${isLearningMode ? '#19067a' : '#ccc'}`,
-          background: isLearningMode ? '#19067a' : '#fff',
-          color: isLearningMode ? '#fff' : '#111',
+          border: `1px solid ${isLearningMode ? 'var(--accent-strong)' : 'var(--border-color)'}`,
+          background: isLearningMode ? 'var(--accent-strong)' : 'var(--surface)',
+          color: isLearningMode ? 'var(--text-on-accent)' : 'var(--text-primary)',
           cursor: isLearningAvailable ? 'pointer' : 'not-allowed',
           fontSize: '0.85rem',
           WebkitAppearance: 'none',
@@ -916,12 +945,12 @@ export default function Home() {
           transform: 'translateY(-50%)',
           padding: '0.6rem 0.8rem',
           borderRadius: '9999px',
-          border: 'none',
-          background: '#fff',
+          border: '1px solid var(--border-color)',
+          background: 'var(--surface)',
           cursor: 'pointer',
           fontSize: '1.2rem',
           lineHeight: 1,
-          color: '#111',
+          color: 'var(--text-primary)',
           WebkitAppearance: 'none',
           appearance: 'none',
         }}
@@ -944,12 +973,12 @@ export default function Home() {
           transform: 'translateY(-50%)',
           padding: '0.6rem 0.8rem',
           borderRadius: '9999px',
-          border: 'none',
-          background: '#fff',
+          border: '1px solid var(--border-color)',
+          background: 'var(--surface)',
           cursor: 'pointer',
           fontSize: '1.2rem',
           lineHeight: 1,
-          color: '#111',
+          color: 'var(--text-primary)',
           WebkitAppearance: 'none',
           appearance: 'none',
         }}
@@ -977,7 +1006,7 @@ export default function Home() {
               boxSizing: 'border-box',
             }}
           >
-            <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', color: '#19067a' }}>{displayWord}</h1>
+            <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', color: 'var(--accent-strong)' }}>{displayWord}</h1>
             <div
               style={{
                 width: '100%',
@@ -999,9 +1028,9 @@ export default function Home() {
                     fontSize: '0.95rem',
                     padding: '0.5rem 0.9rem',
                     borderRadius: '0.4rem',
-                    border: '1px solid #ccc',
-                    background: '#fff',
-                    color: '#111',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--surface)',
+                    color: 'var(--text-primary)',
                     cursor: 'pointer',
                     WebkitAppearance: 'none',
                     appearance: 'none',
@@ -1031,11 +1060,11 @@ export default function Home() {
                 marginTop: '0.75rem',
                 padding: '0.5rem 0.9rem',
                 borderRadius: '0.4rem',
-                border: '1px solid #ccc',
-                background: '#fff',
+                border: '1px solid var(--border-color)',
+                background: 'var(--surface)',
                 cursor: 'pointer',
                 fontSize: '0.95rem',
-                color: '#111',
+                color: 'var(--text-on-primary)',
                 WebkitAppearance: 'none',
                 appearance: 'none',
               }}
@@ -1053,14 +1082,14 @@ export default function Home() {
                   margin: '0 auto',
                   fontSize: '1rem',
                   padding: '0.75rem 1.5rem',
-                  border: '1px solid #eee',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '0.5rem',
-                  background: '#fff',
+                  background: 'var(--surface)',
                   textAlign: 'center',
                   width: '100%',
                   maxWidth: '100%',
                   boxSizing: 'border-box',
-                  color: '#19067a',
+                  color: 'var(--accent-strong)',
                   lineHeight: 1.6,
                 }}
               >
@@ -1079,7 +1108,7 @@ export default function Home() {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.3)',
+            background: 'var(--overlay)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1089,8 +1118,8 @@ export default function Home() {
           aria-modal="true"
           aria-label="Viewed words history"
         >
-          <div style={{ background: '#fff', width: 'min(700px, 95vw)', maxHeight: '80vh', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid #eee' }}>
+          <div style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', maxHeight: '80vh', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
               <strong>Viewed history</strong>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
@@ -1099,18 +1128,18 @@ export default function Home() {
                     setViewedHistory([]);
                     try {
                       if (typeof window !== 'undefined') {
-                        localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
-                      }
-                    } catch (_) {}
+                      localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
+                    }
+                  } catch (_) {}
                   }}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+                  style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Clear
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsHistoryOpen(false)}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#3d3d3dff', borderRadius: '0.4rem', cursor: 'pointer', color: '#fff', WebkitAppearance: 'none', appearance: 'none' }}
+                  style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-on-accent)', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Close
                 </button>
@@ -1122,7 +1151,7 @@ export default function Home() {
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {viewedHistory.map((item, index) => (
-                    <li key={`${item.id ?? 'noid'}-${index}`} style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #f0f0f0', textAlign: 'left' }}>
+                    <li key={`${item.id ?? 'noid'}-${index}`} style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
                       <div style={{ fontWeight: 600 }}>{item.word}</div>
                       <div style={{ opacity: 0.8 }}>{item.translation}</div>
                     </li>
@@ -1141,7 +1170,7 @@ export default function Home() {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.3)',
+            background: 'var(--overlay)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1153,28 +1182,78 @@ export default function Home() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ background: '#fff', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}
+            style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid #eee' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
               <strong>Settings</strong>
               <button
                 type="button"
                 onClick={() => setIsSettingsOpen(false)}
-                style={{ padding: '0.3rem 0.6rem', border: '1px solid #ccc', background: '#3d3d3dff', borderRadius: '0.4rem', cursor: 'pointer', color: '#fff', WebkitAppearance: 'none', appearance: 'none' }}
+                style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-on-accent)', WebkitAppearance: 'none', appearance: 'none' }}
               >
                 Close
               </button>
             </div>
-            <div style={{ padding: '1rem', display: 'grid', gap: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0' }}>
+            <div style={{ padding: '1rem', display: 'grid', gap: '0.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
+                <div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Theme</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '0.4rem',
+                    border: `1px solid ${isRandomOrder ? 'var(--accent-strong)' : 'var(--border-color)'}`,
+                    background: isRandomOrder ? 'var(--accent-strong)' : 'var(--surface)',
+                    color: isRandomOrder ? 'var(--text-on-accent)' : 'var(--text-primary)',
+                    cursor: 'pointer',
+                    WebkitAppearance: 'none',
+                    appearance: 'none',
+                  }}
+                >
+                  {theme === 'light' ? 'Light' : 'Dark'}
+                </button>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
+                <div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Random words order</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const enabled = !isRandomOrder;
+                    setIsRandomOrder(enabled);
+                    try { localStorage.setItem(LOCAL_STORAGE_RANDOM_KEY, enabled ? 'true' : 'false'); } catch (_) {}
+                    // Reset random history when toggling mode
+                    setRandomHistory([]);
+                    setRandomHistoryPos(-1);
+                  }}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '0.4rem',
+                    border: `1px solid ${isRandomOrder ? 'var(--accent-strong)' : 'var(--border-color)'}`,
+                    background: isRandomOrder ? 'var(--accent-strong)' : 'var(--surface)',
+                    color: isRandomOrder ? 'var(--text-on-accent)' : 'var(--text-primary)',
+                    cursor: 'pointer',
+                    WebkitAppearance: 'none',
+                    appearance: 'none',
+                  }}
+                >
+                  {isRandomOrder ? 'On' : 'Off'}
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>History</div>
-                  <div style={{ opacity: 0.7, fontSize: '0.9rem' }}>View the list of viewed words</div>
                 </div>
                 <button
                   type="button"
                   onClick={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Open
                 </button>
@@ -1183,7 +1262,6 @@ export default function Home() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Reset cache</div>
-                  <div style={{ opacity: 0.7, fontSize: '0.9rem' }}>Clear cached vocabulary and reload</div>
                 </div>
                 <button
                   type="button"
@@ -1196,16 +1274,15 @@ export default function Home() {
                     } catch (_) {}
                     window.location.reload();
                   }}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid #ccc', background: '#fff', borderRadius: '0.4rem', cursor: 'pointer', color: '#111', WebkitAppearance: 'none', appearance: 'none' }}
+                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
                 >
                   Reset
                 </button>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>English level</div>
-                  <div style={{ opacity: 0.7, fontSize: '0.9rem' }}>Level used for AI sentence generation</div>
                 </div>
                 <select
                   value={selectedLevel}
@@ -1216,7 +1293,7 @@ export default function Home() {
                       localStorage.setItem(LOCAL_STORAGE_LEVEL_KEY, level);
                     } catch (_) {}
                   }}
-                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid #ccc', background: '#fff' }}
+                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)' }}
                 >
                   {['A1','A2','B1','B2','C1','C2'].map((lvl) => (
                     <option key={lvl} value={lvl}>{lvl}</option>
@@ -1224,15 +1301,14 @@ export default function Home() {
                 </select>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Sentence topic</div>
-                  <div style={{ textAlign: 'left', opacity: 0.7, fontSize: '0.9rem' }}>Pick a topic for generated sentences</div>
                 </div>
                 <select
                   value={selectedTopic}
                   onChange={(e) => setSelectedTopic(e.target.value)}
-                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid #ccc', background: '#fff', minWidth: '9rem' }}
+                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', minWidth: '9rem' }}
                 >
                   {SENTENCE_TOPIC_OPTIONS.map((topic) => (
                     <option key={topic.value} value={topic.value}>
@@ -1240,30 +1316,6 @@ export default function Home() {
                     </option>
                   ))}
                 </select>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Random order</div>
-                  <div style={{ textAlign: 'left', opacity: 0.7, fontSize: '0.9rem' }}>Show words in random order instead of sequential</div>
-                </div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={isRandomOrder}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
-                      setIsRandomOrder(enabled);
-                      try { localStorage.setItem(LOCAL_STORAGE_RANDOM_KEY, enabled ? 'true' : 'false'); } catch (_) {}
-                      // Reset random history when toggling mode
-                      setRandomHistory([]);
-                      setRandomHistoryPos(-1);
-                    }}
-                  />
-                  <span style={{marginRight: '0.5rem'}}>
-                    {isRandomOrder ? 'On' : 'Off'}
-                  </span>
-                </label>
               </div>
             </div>
           </div>

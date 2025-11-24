@@ -1,3 +1,39 @@
+:root {
+  --page-bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-muted: #f0f3fb;
+  --text-primary: #0f172a;
+  --text-secondary: #4b5563;
+  --border-color: #d8dce6;
+  --button-bg: #f3f4f6;
+  --button-strong: #2b2f3a;
+  --accent: #4338ca;
+  --accent-strong: #19067a;
+  --text-on-accent: #ffffff;
+  --overlay: rgba(0, 0, 0, 0.35);
+  --shadow-elevated: 0 10px 30px rgba(0, 0, 0, 0.12);
+  --input-bg: #ffffff;
+  --danger: #b00020;
+}
+
+:root[data-theme='dark'] {
+  --page-bg: #0c111c;
+  --surface: #0f172a;
+  --surface-muted: #0d1424;
+  --text-primary: #e5e9f5;
+  --text-secondary: #9aa4bf;
+  --border-color: #1f2838;
+  --button-bg: #182136;
+  --button-strong: #2b3550;
+  --accent: #7ea2ff;
+  --accent-strong: #90b4ff;
+  --text-on-accent: #0c1224;
+  --overlay: rgba(0, 0, 0, 0.55);
+  --shadow-elevated: 0 12px 38px rgba(0, 0, 0, 0.45);
+  --input-bg: #0f172a;
+  --danger: #ff8fa3;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -7,6 +43,13 @@ html, body {
 body {
   font-family: 'Inter', sans-serif;
   overflow-x: hidden;
+  background: var(--page-bg);
+  color: var(--text-primary);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+* {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 input,
@@ -14,4 +57,5 @@ button,
 select,
 textarea {
   font-size: 16px;
+  color: inherit;
 }
