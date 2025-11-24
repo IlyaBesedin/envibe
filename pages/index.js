@@ -174,6 +174,16 @@ export default function Home() {
   const [isLearningMode, setIsLearningMode] = useState(false);
   const [learningIndex, setLearningIndex] = useState(0);
   const [revealedTranslations, setRevealedTranslations] = useState({});
+  const toggleButtonStyle = useCallback((active) => ({
+    padding: '0.4rem 0.8rem',
+    borderRadius: '0.4rem',
+    border: `1px solid ${active ? 'var(--accent-strong)' : 'var(--border-color)'}`,
+    background: active ? 'var(--accent-strong)' : 'var(--surface)',
+    color: active ? 'var(--text-on-accent)' : 'var(--text-primary)',
+    cursor: 'pointer',
+    WebkitAppearance: 'none',
+    appearance: 'none',
+  }), []);
   // Auth tokens
   const LOCAL_STORAGE_AUTH_KEY = 'stackAuthTokens';
   const [accessToken, setAccessToken] = useState('');
@@ -1089,7 +1099,7 @@ export default function Home() {
                   width: '100%',
                   maxWidth: '100%',
                   boxSizing: 'border-box',
-                  color: 'var(--accent-strong)',
+                  color: 'var(--text-primary)',
                   lineHeight: 1.6,
                 }}
               >
@@ -1202,16 +1212,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-                  style={{
-                    padding: '0.4rem 0.8rem',
-                    borderRadius: '0.4rem',
-                    border: `1px solid ${isRandomOrder ? 'var(--accent-strong)' : 'var(--border-color)'}`,
-                    background: isRandomOrder ? 'var(--accent-strong)' : 'var(--surface)',
-                    color: isRandomOrder ? 'var(--text-on-accent)' : 'var(--text-primary)',
-                    cursor: 'pointer',
-                    WebkitAppearance: 'none',
-                    appearance: 'none',
-                  }}
+                  style={toggleButtonStyle(false)}
                 >
                   {theme === 'light' ? 'Light' : 'Dark'}
                 </button>
@@ -1231,16 +1232,7 @@ export default function Home() {
                     setRandomHistory([]);
                     setRandomHistoryPos(-1);
                   }}
-                  style={{
-                    padding: '0.4rem 0.8rem',
-                    borderRadius: '0.4rem',
-                    border: `1px solid ${isRandomOrder ? 'var(--accent-strong)' : 'var(--border-color)'}`,
-                    background: isRandomOrder ? 'var(--accent-strong)' : 'var(--surface)',
-                    color: isRandomOrder ? 'var(--text-on-accent)' : 'var(--text-primary)',
-                    cursor: 'pointer',
-                    WebkitAppearance: 'none',
-                    appearance: 'none',
-                  }}
+                  style={toggleButtonStyle(isRandomOrder)}
                 >
                   {isRandomOrder ? 'On' : 'Off'}
                 </button>
