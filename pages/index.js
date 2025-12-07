@@ -175,6 +175,9 @@ export default function Home() {
   const [isLearningMode, setIsLearningMode] = useState(false);
   const [learningIndex, setLearningIndex] = useState(0);
   const [revealedTranslations, setRevealedTranslations] = useState({});
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const toggleButtonStyle = useCallback((active) => ({
     padding: '0.4rem 0.8rem',
     borderRadius: '0.4rem',
@@ -524,6 +527,22 @@ export default function Home() {
     [viewedHistory],
   );
 
+  const searchSuggestions = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    if (query.length < 3) return [];
+
+    const unique = new Set();
+    entryList.forEach((entry) => {
+      if (!entry?.word) return;
+      const lower = entry.word.toLowerCase();
+      if (lower.includes(query)) {
+        unique.add(entry.word);
+      }
+    });
+
+    return Array.from(unique).slice(0, 5);
+  }, [searchTerm, entryList]);
+
   useEffect(() => {
     if (!isLearningMode) return;
     if (learningEntries.length === 0) {
@@ -655,6 +674,32 @@ export default function Home() {
     randomHistory,
   ]);
 
+  const handleSignOut = useCallback(async () => {
+    try {
+      await user?.signOut({ redirectUrl: '/' });
+      setUser(null);
+      try { localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY); } catch (_) {}
+      try { localStorage.removeItem('AccessToken'); } catch (_) {}
+      try { localStorage.removeItem('RefreshToken'); } catch (_) {}
+      try { localStorage.removeItem('AuthUserId'); } catch (_) {}
+      try { localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY); } catch (_) {}
+      setAccessToken('');
+      setRefreshToken('');
+      setAuthUserId('');
+      setTokenStoreTokens('', '');
+      setViewedHistory([]);
+      setEntryList([]);
+      setRandomHistory([]);
+      setRandomHistoryPos(-1);
+      initialPositionResolvedRef.current = false;
+      setIsHistoryLoaded(false);
+      setIsLearningMode(false);
+      setLearningIndex(0);
+      setRevealedTranslations({});
+      setSelectedTopic('random');
+    } catch (_) {}
+  }, [user]);
+
   const activeEntries = isLearningMode ? learningEntries : entryList;
   const activeIndex = isLearningMode ? learningIndex : currentIndex;
   const currentEntry = activeEntries.length > 0 ? activeEntries[activeIndex] : null;
@@ -694,6 +739,31 @@ export default function Home() {
       setIsGenerating(false);
     }
   }
+
+  const handleSelectSuggestion = useCallback((word) => {
+    const normalized = word?.trim();
+    if (!normalized) return;
+    const targetIndex = entryList.findIndex(
+      (entry) => entry?.word && entry.word.toLowerCase() === normalized.toLowerCase(),
+    );
+    if (targetIndex === -1) {
+      return;
+    }
+
+    setIsLearningMode(false);
+    setGeneratedSentence('');
+    setIsGenerating(false);
+    setIsMenuOpen(false);
+    setIsSearchFocused(false);
+    setSearchTerm(normalized);
+
+    if (isRandomOrder) {
+      setRandomHistory([targetIndex]);
+      setRandomHistoryPos(0);
+    }
+
+    setCurrentIndex(targetIndex);
+  }, [entryList, isRandomOrder]);
 
   // Gate: show auth UI first
   if (authLoading) {
@@ -818,149 +888,281 @@ export default function Home() {
         onClick={handleAdvance}
         role="button"
         tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === ' ' || event.key === 'Enter' || event.key === 'ArrowRight') {
-          event.preventDefault();
-          handleAdvance();
-        } else if (event.key === 'ArrowLeft') {
-          event.preventDefault();
-          handleBack();
-        }
-      }}
-      style={{
-        minHeight: '100dvh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        padding: '2rem',
-        paddingTop: 'calc(2rem + env(safe-area-inset-top))',
-        paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))',
-        paddingLeft: 'calc(2rem + env(safe-area-inset-left))',
-        paddingRight: 'calc(2rem + env(safe-area-inset-right))',
-        textAlign: 'center',
-        position: 'relative',
-        fontFamily: 'Inter, sans-serif',
-        background: 'var(--page-bg)',
-        color: 'var(--text-primary)',
-        transition: 'background-color 0.25s ease, color 0.25s ease',
-        boxSizing: 'border-box',
-      }}
-    >
-      {/* Settings */}
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          setIsSettingsOpen(true);
-        }}
-        style={{
-          position: 'absolute',
-          top: 'calc(env(safe-area-inset-top) + 1rem)',
-          right: 'calc(env(safe-area-inset-right) + 1rem)',
-          padding: '0.4rem 0.7rem',
-          borderRadius: '0.4rem',
-          border: '1px solid var(--border-color)',
-          background: 'var(--surface)',
-          cursor: 'pointer',
-          fontSize: '0.85rem',
-          color: 'var(--text-primary)',
-          WebkitAppearance: 'none',
-          appearance: 'none',
-        }}
-        aria-label="Open settings"
-      >
-        Settings
-      </button>
-
-      {/* Sign out */}
-      <button
-        type="button"
-        onClick={async (event) => {
-          event.stopPropagation();
-          try {
-            await user?.signOut({ redirectUrl: '/' });
-            setUser(null);
-            try { localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY); } catch (_) {}
-            try { localStorage.removeItem('AccessToken'); } catch (_) {}
-            try { localStorage.removeItem('RefreshToken'); } catch (_) {}
-            try { localStorage.removeItem('AuthUserId'); } catch (_) {}
-            try { localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY); } catch (_) {}
-            setAccessToken('');
-            setRefreshToken('');
-            setAuthUserId('');
-            setTokenStoreTokens('', '');
-            setViewedHistory([]);
-            setEntryList([]);
-            setRandomHistory([]);
-            setRandomHistoryPos(-1);
-            initialPositionResolvedRef.current = false;
-            setIsHistoryLoaded(false);
-            setIsLearningMode(false);
-            setLearningIndex(0);
-            setRevealedTranslations({});
-            setSelectedTopic('random');
-          } catch (_) {}
-        }}
-        style={{
-          position: 'absolute',
-          top: 'calc(env(safe-area-inset-top) + 1rem)',
-          left: 'calc(env(safe-area-inset-left) + 1rem)',
-          padding: '0.4rem 0.7rem',
-          borderRadius: '0.4rem',
-          border: '1px solid var(--border-color)',
-          background: 'var(--surface)',
-          cursor: 'pointer',
-          fontSize: '0.85rem',
-          color: 'var(--text-primary)',
-          WebkitAppearance: 'none',
-          appearance: 'none',
-        }}
-        aria-label="Sign out"
-      >
-        Sign Out
-      </button>
-
-      {/* Learning mode */}
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          if (!isLearningAvailable) {
-            if (typeof window !== 'undefined') {
-              window.alert('Learning Mode will be available once you have viewed a few words in the dictionary');
-            }
-            return;
+        onKeyDown={(event) => {
+          if (event.key === ' ' || event.key === 'Enter' || event.key === 'ArrowRight') {
+            event.preventDefault();
+            handleAdvance();
+          } else if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            handleBack();
           }
-          setIsLearningMode((prev) => {
-            const next = !prev;
-            if (next) {
-              setLearningIndex(0);
-            }
-            return next;
-          });
         }}
-        aria-pressed={isLearningMode}
-        aria-disabled={!isLearningAvailable}
         style={{
-          position: 'absolute',
-          top: 'calc(env(safe-area-inset-top) + 1rem)',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          padding: '0.4rem 0.9rem',
-          borderRadius: '0.4rem',
-          border: `1px solid ${isLearningMode ? 'var(--accent-strong)' : 'var(--border-color)'}`,
-          background: isLearningMode ? 'var(--accent-strong)' : 'var(--surface)',
-          color: isLearningMode ? 'var(--text-on-accent)' : 'var(--text-primary)',
-          cursor: isLearningAvailable ? 'pointer' : 'not-allowed',
-          fontSize: '0.85rem',
-          WebkitAppearance: 'none',
-          appearance: 'none',
-          opacity: isLearningAvailable ? 1 : 0.6,
+          minHeight: '100dvh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          padding: '2rem',
+          paddingTop: 'calc(2rem + env(safe-area-inset-top))',
+          paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))',
+          paddingLeft: 'calc(2rem + env(safe-area-inset-left))',
+          paddingRight: 'calc(2rem + env(safe-area-inset-right))',
+          textAlign: 'center',
+          position: 'relative',
+          fontFamily: 'Inter, sans-serif',
+          background: 'var(--page-bg)',
+          color: 'var(--text-primary)',
+          transition: 'background-color 0.25s ease, color 0.25s ease',
+          boxSizing: 'border-box',
         }}
       >
-        Learning Mode
-      </button>
+      {/* Top bar */}
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          position: 'absolute',
+          top: 'calc(env(safe-area-inset-top) + 0.75rem)',
+          left: 'calc(env(safe-area-inset-left) + 0.75rem)',
+          right: 'calc(env(safe-area-inset-right) + 0.75rem)',
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr auto',
+          alignItems: 'center',
+          gap: '0.8rem',
+          zIndex: 12,
+        }}
+      >
+        <button
+          type="button"
+          aria-label="Toggle menu"
+          aria-pressed={isMenuOpen}
+          onClick={(event) => {
+            event.stopPropagation();
+            setIsMenuOpen((prev) => !prev);
+          }}
+          style={{
+            width: '44px',
+            height: '26px',
+            borderRadius: 'none',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            display: 'grid',
+            placeItems: 'center',
+            gap: '4px',
+            transform: isMenuOpen ? 'scale(1.08)' : 'scale(1)',
+            transition: 'transform 0.18s ease, background-color 0.18s ease, border-color 0.18s ease',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+          }}
+        >
+          {[0, 1, 2].map((line) => (
+            <span
+              // eslint-disable-next-line react/no-array-index-key
+              key={`burger-line-${line}`}
+              style={{
+                width: '18px',
+                height: '1px',
+                borderRadius: '999px',
+                background: 'var(--text-primary)',
+                display: 'block',
+              }}
+            />
+          ))}
+        </button>
+        <div style={{ position: 'relative', width: '100%', maxWidth: '520px', justifySelf: 'center' }}>
+          <input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => {
+              // Allow suggestion click to fire before hiding
+              setTimeout(() => setIsSearchFocused(false), 80);
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+            placeholder="Search…"
+            style={{
+              width: '100%',
+              padding: '0.55rem 0.8rem',
+              borderRadius: '0.55rem',
+              border: '1px solid var(--border-color)',
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              fontSize: '0.95rem',
+              boxSizing: 'border-box',
+            }}
+          />
+          {searchTerm.trim().length >= 3 && searchSuggestions.length > 0 && isSearchFocused && (
+            <div
+              onMouseDown={(event) => event.stopPropagation()}
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 0.35rem)',
+                left: 0,
+                right: 0,
+                background: 'var(--surface)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '0.55rem',
+                boxShadow: 'var(--shadow-elevated)',
+                padding: '0.35rem',
+                display: 'grid',
+                gap: '0.25rem',
+                zIndex: 13,
+              }}
+            >
+              {searchSuggestions.map((word) => (
+                <button
+                  key={word}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleSelectSuggestion(word);
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '0.5rem 0.6rem',
+                    borderRadius: '0.45rem',
+                    border: 'none',
+                    background: 'var(--surface)',
+                    cursor: 'pointer',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  {word}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sliding menu */}
+      {isMenuOpen && (
+        <div
+          onClick={(event) => {
+            event.stopPropagation();
+            setIsMenuOpen(false);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.25)',
+            backdropFilter: 'blur(2px)',
+            zIndex: 14,
+          }}
+        />
+      )}
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: '33vw',
+          minWidth: '240px',
+          maxWidth: '400px',
+          background: 'var(--surface)',
+          color: 'var(--text-primary)',
+          transform: isMenuOpen ? 'translateX(0)' : 'translateX(-105%)',
+          transition: 'transform 0.25s ease',
+          padding: 'calc(env(safe-area-inset-top) + 1.4rem) 1.25rem 1.25rem',
+          boxShadow: 'var(--shadow-elevated)',
+          zIndex: 15,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.65rem',
+        }}
+      >
+        <div style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.35rem' }}>Menu</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Dark Theme</div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+            }}
+            style={toggleButtonStyle(theme === 'dark')}
+          >
+            {theme === 'dark' ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Learning Mode</div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (!isLearningAvailable) {
+                if (typeof window !== 'undefined') {
+                  window.alert('Learning Mode will be available once you have viewed a few words in the dictionary');
+                }
+                return;
+              }
+              setIsLearningMode((prev) => {
+                const next = !prev;
+                if (next) {
+                  setLearningIndex(0);
+                }
+                return next;
+              });
+            }}
+            aria-pressed={isLearningMode}
+            aria-disabled={!isLearningAvailable}
+            style={{ ...toggleButtonStyle(isLearningMode), opacity: isLearningAvailable ? 1 : 0.6, cursor: isLearningAvailable ? 'pointer' : 'not-allowed' }}
+          >
+            {isLearningMode ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Random order</div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              const enabled = !isRandomOrder;
+              setIsRandomOrder(enabled);
+              try { localStorage.setItem(LOCAL_STORAGE_RANDOM_KEY, enabled ? 'true' : 'false'); } catch (_) {}
+              setRandomHistory([]);
+              setRandomHistoryPos(-1);
+            }}
+            style={toggleButtonStyle(isRandomOrder)}
+          >
+            {isRandomOrder ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Settings</div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsSettingsOpen(true);
+              setIsMenuOpen(false);
+            }}
+            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+          >
+            Open
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Sign Out</div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsMenuOpen(false);
+              handleSignOut();
+            }}
+            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+          >
+            Exit
+          </button>
+        </div>
+      </div>
 
       {/* Left arrow */}
       <button
@@ -1226,39 +1428,6 @@ export default function Home() {
               </button>
             </div>
             <div style={{ padding: '1rem', display: 'grid', gap: '0.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Theme</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-                  style={toggleButtonStyle(false)}
-                >
-                  {theme === 'light' ? 'Light' : 'Dark'}
-                </button>
-              </div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Random words order</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const enabled = !isRandomOrder;
-                    setIsRandomOrder(enabled);
-                    try { localStorage.setItem(LOCAL_STORAGE_RANDOM_KEY, enabled ? 'true' : 'false'); } catch (_) {}
-                    // Reset random history when toggling mode
-                    setRandomHistory([]);
-                    setRandomHistoryPos(-1);
-                  }}
-                  style={toggleButtonStyle(isRandomOrder)}
-                >
-                  {isRandomOrder ? 'On' : 'Off'}
-                </button>
-              </div>
-
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>History</div>
