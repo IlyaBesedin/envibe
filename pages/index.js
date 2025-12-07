@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import Head from 'next/head';
 import { stackClientApp } from '../stack/client';
 import { SENTENCE_TOPIC_OPTIONS } from '../lib/sentenceTopics';
 
@@ -697,45 +698,58 @@ export default function Home() {
   // Gate: show auth UI first
   if (authLoading) {
     return (
-      <div
-        style={{
-          minHeight: '100dvh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '1rem',
-          padding: 'env(safe-area-inset-top) 1rem 1rem',
-          boxSizing: 'border-box',
-        }}
-      >
-        Loading…
-      </div>
+      <>
+        <Head>
+          <title>Envibe Vocabulary</title>
+          <meta name="description" content="Envibe Vocabulary" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+        </Head>
+        <div
+          style={{
+            minHeight: '100dvh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1rem',
+            padding: 'env(safe-area-inset-top) 1rem 1rem',
+            boxSizing: 'border-box',
+          }}
+        >
+          Loading…
+        </div>
+      </>
     );
   }
 
   if (!user && !accessToken) {
     return (
-      <div
-        style={{
-          minHeight: '100dvh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '2rem',
-          paddingTop: 'calc(2rem + env(safe-area-inset-top))',
-          paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))',
-          paddingLeft: 'calc(2rem + env(safe-area-inset-left))',
-          paddingRight: 'calc(2rem + env(safe-area-inset-right))',
-          background: 'var(--page-bg)',
-          color: 'var(--text-primary)',
-          boxSizing: 'border-box',
-        }}
-      >
-        <form
-          onSubmit={handleEmailPasswordSignIn}
-          style={{ width: 'min(380px, 95vw)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '1rem', boxShadow: 'var(--shadow-elevated)', background: 'var(--surface)', color: 'var(--text-primary)' }}
+      <>
+        <Head>
+          <title>Envibe Sign In</title>
+          <meta name="description" content="Envibe Sign In" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+        </Head>
+        <div
+          style={{
+            minHeight: '100dvh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '2rem',
+            paddingTop: 'calc(2rem + env(safe-area-inset-top))',
+            paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))',
+            paddingLeft: 'calc(2rem + env(safe-area-inset-left))',
+            paddingRight: 'calc(2rem + env(safe-area-inset-right))',
+            background: 'var(--page-bg)',
+            color: 'var(--text-primary)',
+            boxSizing: 'border-box',
+          }}
         >
-          <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem', textAlign: 'center' }}>Envibe</h1>
+          <form
+            onSubmit={handleEmailPasswordSignIn}
+            style={{ width: 'min(380px, 95vw)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '1rem', boxShadow: 'var(--shadow-elevated)', background: 'var(--surface)', color: 'var(--text-primary)' }}
+          >
+            <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem', textAlign: 'center' }}>Envibe</h1>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
             <span style={{ fontSize: '0.85rem' }}>Email</span>
             <input
@@ -789,14 +803,21 @@ export default function Home() {
           </button>
         </form>
       </div>
+      </>
     );
   }
 
   return (
-    <div
-      onClick={handleAdvance}
-      role="button"
-      tabIndex={0}
+    <>
+      <Head>
+        <title>Envibe Vocabulary</title>
+        <meta name="description" content="Envibe Vocabulary" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </Head>
+      <div
+        onClick={handleAdvance}
+        role="button"
+        tabIndex={0}
       onKeyDown={(event) => {
         if (event.key === ' ' || event.key === 'Enter' || event.key === 'ArrowRight') {
           event.preventDefault();
@@ -1314,5 +1335,6 @@ export default function Home() {
         </div>
       )}
     </div>
+    </>
   );
 }
