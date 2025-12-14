@@ -148,11 +148,11 @@ export default function Home() {
         setRefreshToken(payload.refresh_token);
         setAuthUserId(payload.user_id);
       } else {
-        const msg = res?.error?.message || 'Не удалось войти';
+        const msg = res?.error?.message || 'Failed to sign in';
         setAuthError(msg);
       }
     } catch (e) {
-      setAuthError(e instanceof Error ? e.message : 'Не удалось войти');
+      setAuthError(e instanceof Error ? e.message : 'Failed to sign in');
     }
   }
   const [entryList, setEntryList] = useState([]);
@@ -178,6 +178,13 @@ export default function Home() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchInputRef = useRef(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newWord, setNewWord] = useState('');
+  const [newTranslation, setNewTranslation] = useState('');
+  const [addError, setAddError] = useState('');
+  const [isAddingWord, setIsAddingWord] = useState(false);
+  const [addSuccess, setAddSuccess] = useState(false);
   const toggleButtonStyle = useCallback((active) => ({
     padding: '0.4rem 0.8rem',
     borderRadius: '0.4rem',
@@ -188,6 +195,12 @@ export default function Home() {
     WebkitAppearance: 'none',
     appearance: 'none',
   }), []);
+  const blurSearchInput = useCallback(() => {
+    setIsSearchFocused(false);
+    if (searchInputRef.current && typeof searchInputRef.current.blur === 'function') {
+      searchInputRef.current.blur();
+    }
+  }, []);
   // Auth tokens
   const LOCAL_STORAGE_AUTH_KEY = 'stackAuthTokens';
   const [accessToken, setAccessToken] = useState('');
@@ -330,7 +343,7 @@ export default function Home() {
     return arr;
   }
 
-  function mapApiDataToEntries(data) {
+  const mapApiDataToEntries = useCallback((data) => {
     if (!Array.isArray(data)) return [];
     return data
       .filter((item) => item && (item.key !== undefined) && (item.translate !== undefined))
@@ -344,83 +357,189 @@ export default function Home() {
         word: String(key),
         translation: String(translate),
       }));
-  }
+  }, []);
+
+  const fetchVocabularyFromApi = useCallback(async (allowRefresh = true) => {
+    const headers = { Accept: 'application/json' };
+    const currentAccessToken = tokenStore.accessToken || accessToken;
+    if (currentAccessToken) {
+      headers.Authorization = `Bearer ${currentAccessToken}`;
+    }
+
+    const response = await fetch(VOCABULARY_URL, { method: 'GET', headers });
+
+    if (response.status === 400 && allowRefresh) {
+      if (tokenStore.refreshToken) {
+        try {
+          await refreshAccessToken();
+        } catch (refreshError) {
+          await logoutDueToRefreshFailure();
+          throw refreshError;
+        }
+        return fetchVocabularyFromApi(false);
+      }
+      await logoutDueToRefreshFailure();
+      throw new TokenRefreshError('Refresh token missing for retry');
+    }
+
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+
+    return response.json();
+  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+
+  const loadVocabulary = useCallback(async (options = {}) => {
+    const { skipCache = false, isActiveRef } = options;
+    const isActive = () => !isActiveRef || isActiveRef.active;
+    const effectiveAccessToken = tokenStore.accessToken || accessToken;
+    if (!user && !effectiveAccessToken) return;
+    try {
+      setIsLoading(true);
+      if (!skipCache && typeof window !== 'undefined') {
+        const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (cached) {
+          const cachedObject = JSON.parse(cached);
+          if (!isActive()) return;
+          const entriesFromCache = mapApiDataToEntries(cachedObject);
+          setEntryList(entriesFromCache);
+          setIsLoading(false);
+        }
+      }
+
+      const data = await fetchVocabularyFromApi(true);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+      }
+
+      if (!isActive()) return;
+      const entries = mapApiDataToEntries(data);
+      setEntryList(entries);
+      setErrorMessage('');
+      setIsLoading(false);
+    } catch (error) {
+      if (!isActive()) return;
+      if (error instanceof TokenRefreshError) {
+        return;
+      }
+      setErrorMessage(error instanceof Error ? error.message : 'Unknown error');
+      setIsLoading(false);
+    }
+  }, [accessToken, user, fetchVocabularyFromApi, mapApiDataToEntries]);
+
+  const addWordToApi = useCallback(async (payload, allowRefresh = true) => {
+    const headers = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    };
+    const currentAccessToken = tokenStore.accessToken || accessToken;
+    if (currentAccessToken) {
+      headers.Authorization = `Bearer ${currentAccessToken}`;
+    }
+
+    const response = await fetch(VOCABULARY_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (response.status === 400 && allowRefresh) {
+      if (tokenStore.refreshToken) {
+        try {
+          await refreshAccessToken();
+        } catch (refreshError) {
+          await logoutDueToRefreshFailure();
+          throw refreshError;
+        }
+        return addWordToApi(payload, false);
+      }
+      await logoutDueToRefreshFailure();
+      throw new TokenRefreshError('Refresh token missing for retry');
+    }
+
+    if (!response.ok) {
+      let message = `Request failed with status ${response.status}`;
+      try {
+        const err = await response.json();
+        if (err && (err.message || err.error)) {
+          message = err.message || err.error;
+        }
+      } catch (_) {}
+      throw new Error(message);
+    }
+
+    return response.json();
+  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+
+  const openAddModal = useCallback((prefill = '') => {
+    const normalized = prefill.trim().slice(0, 50);
+    setNewWord(normalized);
+    setNewTranslation('');
+    setAddError('');
+    setAddSuccess(false);
+    setIsAddModalOpen(true);
+    setIsMenuOpen(false);
+    setIsSettingsOpen(false);
+    blurSearchInput();
+  }, [blurSearchInput]);
+
+  const closeAddModal = useCallback(() => {
+    if (isAddingWord) return;
+    setIsAddModalOpen(false);
+    setAddError('');
+    setAddSuccess(false);
+  }, [isAddingWord]);
+
+  const handleAddWord = useCallback(async () => {
+    const key = newWord.trim();
+    const translate = newTranslation.trim();
+    if (!key || !translate) {
+      setAddError('Both fields are required');
+      return;
+    }
+    const effectiveAccessToken = tokenStore.accessToken || accessToken;
+    if (!user && !effectiveAccessToken) {
+      setAddError('Authorization required');
+      return;
+    }
+    try {
+      setIsAddingWord(true);
+      setAddError('');
+      setAddSuccess(false);
+      await addWordToApi({ key, translate });
+      setNewWord('');
+      setNewTranslation('');
+      setSearchTerm('');
+      setIsSearchFocused(false);
+      setAddSuccess(true);
+      await loadVocabulary({ skipCache: true });
+    } catch (error) {
+      setAddError(error instanceof Error ? error.message : 'Failed to add word');
+    } finally {
+      setIsAddingWord(false);
+    }
+  }, [newWord, newTranslation, addWordToApi, loadVocabulary, accessToken, user]);
 
   useEffect(() => {
     if (authLoading) return;
     const effectiveAccessToken = tokenStore.accessToken || accessToken;
     if (!user && !effectiveAccessToken) return;
 
-    let isActive = true;
-
-    const fetchVocabularyFromApi = async (allowRefresh = true) => {
-      const headers = { Accept: 'application/json' };
-      const currentAccessToken = tokenStore.accessToken || accessToken;
-      if (currentAccessToken) {
-        headers.Authorization = `Bearer ${currentAccessToken}`;
-      }
-
-      const response = await fetch(VOCABULARY_URL, { method: 'GET', headers });
-
-      if (response.status === 400 && allowRefresh) {
-        if (tokenStore.refreshToken) {
-          try {
-            await refreshAccessToken();
-          } catch (refreshError) {
-            await logoutDueToRefreshFailure();
-            throw refreshError;
-          }
-          return fetchVocabularyFromApi(false);
-        }
-        await logoutDueToRefreshFailure();
-        throw new TokenRefreshError('Refresh token missing for retry');
-      }
-
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
-
-      return response.json();
-    };
-
-    async function loadVocabulary() {
-      try {
-        const cached = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_KEY) : null;
-        if (cached) {
-          const cachedObject = JSON.parse(cached);
-          if (!isActive) return;
-          const entriesFromCache = mapApiDataToEntries(cachedObject);
-          setEntryList(entriesFromCache);
-          setIsLoading(false);
-        }
-
-        const data = await fetchVocabularyFromApi(true);
-
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
-        }
-
-        if (!isActive) return;
-        const entries = mapApiDataToEntries(data);
-        setEntryList(entries);
-        setErrorMessage('');
-        setIsLoading(false);
-      } catch (error) {
-        if (!isActive) return;
-        if (error instanceof TokenRefreshError) {
-          return;
-        }
-        setErrorMessage(error instanceof Error ? error.message : 'Unknown error');
-        setIsLoading(false);
-      }
-    }
-
-    loadVocabulary();
+    const state = { active: true };
+    loadVocabulary({ isActiveRef: state });
 
     return () => {
-      isActive = false;
+      state.active = false;
     };
-  }, [authLoading, user, accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+  }, [authLoading, user, accessToken, loadVocabulary]);
+
+  useEffect(() => {
+    if (isMenuOpen || isSettingsOpen || isAddModalOpen) {
+      blurSearchInput();
+    }
+  }, [isMenuOpen, isSettingsOpen, isAddModalOpen, blurSearchInput]);
 
   // Load history on mount
   useEffect(() => {
@@ -755,6 +874,9 @@ export default function Home() {
     setIsGenerating(false);
     setIsMenuOpen(false);
     setIsSearchFocused(false);
+    if (searchInputRef.current && typeof searchInputRef.current.blur === 'function') {
+      searchInputRef.current.blur();
+    }
     setSearchTerm('');
 
     if (isRandomOrder) {
@@ -794,11 +916,11 @@ export default function Home() {
   if (!user && !accessToken) {
     return (
       <>
-        <Head>
-          <title>Envibe Sign In</title>
-          <meta name="description" content="Envibe Sign In" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-        </Head>
+            <Head>
+        <title>Envibe Sign In</title>
+        <meta name="description" content="Envibe Sign In" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </Head>
         <div
           style={{
             minHeight: '100dvh',
@@ -831,7 +953,7 @@ export default function Home() {
             />
           </label>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
-            <span style={{ fontSize: '0.85rem' }}>Password</span>
+          <span style={{ fontSize: '0.85rem' }}>Password</span>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <input
                 type={isPasswordVisible ? 'text' : 'password'}
@@ -980,8 +1102,9 @@ export default function Home() {
               // Allow suggestion click to fire before hiding
               setTimeout(() => setIsSearchFocused(false), 80);
             }}
+            ref={searchInputRef}
             onKeyDown={(event) => event.stopPropagation()}
-            placeholder="Search…"
+            placeholder="Search..."
             style={{
               width: '100%',
               padding: '0.55rem 0.8rem',
@@ -993,7 +1116,7 @@ export default function Home() {
               boxSizing: 'border-box',
             }}
           />
-          {searchTerm.trim().length >= 3 && searchSuggestions.length > 0 && isSearchFocused && (
+          {searchTerm.trim().length >= 3 && isSearchFocused && (
             <div
               onMouseDown={(event) => event.stopPropagation()}
               style={{
@@ -1011,14 +1134,36 @@ export default function Home() {
                 zIndex: 13,
               }}
             >
-              {searchSuggestions.map((word) => (
+              {searchSuggestions.length > 0 ? (
+                searchSuggestions.map((word) => (
+                  <button
+                    key={word}
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleSelectSuggestion(word);
+                    }}
+                    style={{
+                      textAlign: 'left',
+                      padding: '0.5rem 0.6rem',
+                      borderRadius: '0.45rem',
+                      border: 'none',
+                      background: 'var(--surface)',
+                      cursor: 'pointer',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    {word}
+                  </button>
+                ))
+              ) : (
                 <button
-                  key={word}
                   type="button"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    handleSelectSuggestion(word);
+                    openAddModal(searchTerm);
                   }}
                   style={{
                     textAlign: 'left',
@@ -1028,11 +1173,12 @@ export default function Home() {
                     background: 'var(--surface)',
                     cursor: 'pointer',
                     color: 'var(--text-primary)',
+                    fontWeight: 600,
                   }}
                 >
-                  {word}
+                  Add +
                 </button>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -1098,7 +1244,7 @@ export default function Home() {
               event.stopPropagation();
               if (!isLearningAvailable) {
                 if (typeof window !== 'undefined') {
-                  window.alert('Learning Mode will be available once you have viewed a few words in the dictionary');
+                  window.alert('Learning Mode unlocks after you view a few words.');
                 }
                 return;
               }
@@ -1118,7 +1264,7 @@ export default function Home() {
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Random order</div>
+          <div style={{ fontWeight: 600 }}>Random Order</div>
           <button
             type="button"
             onClick={(event) => {
@@ -1135,13 +1281,29 @@ export default function Home() {
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Add New Word</div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              openAddModal('');
+            }}
+            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+          >
+            Add
+          </button>
+        </div>
+        <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.15rem -0.25rem 0', paddingTop: '0.35rem' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
           <div style={{ fontWeight: 600 }}>Settings</div>
           <button
             type="button"
             onClick={(event) => {
               event.stopPropagation();
+              setIsAddModalOpen(false);
               setIsSettingsOpen(true);
               setIsMenuOpen(false);
+              blurSearchInput();
             }}
             style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
           >
@@ -1149,7 +1311,7 @@ export default function Home() {
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Sign Out</div>
+          <div style={{ fontWeight: 600 }}>Sign out</div>
           <button
             type="button"
             onClick={(event) => {
@@ -1331,7 +1493,7 @@ export default function Home() {
             )}
           </div>
         )}
-        {!isLoading && !errorMessage && !currentEntry && <p>No vocabulary available.</p>}
+        {!isLoading && !errorMessage && !currentEntry && <p>No vocabulary available. Try reloading.</p>}
       </div>
 
       {/* History overlay */}
@@ -1349,11 +1511,11 @@ export default function Home() {
           }}
           role="dialog"
           aria-modal="true"
-          aria-label="Viewed words history"
+          aria-label="History"
         >
           <div style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', maxHeight: '80vh', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
-              <strong>Viewed history</strong>
+              <strong>History</strong>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
                   type="button"
@@ -1392,6 +1554,96 @@ export default function Home() {
                 </ul>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add word modal */}
+      {isAddModalOpen && (
+        <div
+          onClick={closeAddModal}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'var(--overlay)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            zIndex: 20,
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add new word"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              width: 'min(480px, 95vw)',
+              borderRadius: '0.6rem',
+              boxShadow: 'var(--shadow-elevated)',
+              padding: '1rem',
+              display: 'grid',
+              gap: '0.75rem',
+            }}
+          >
+            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
+              <span style={{ fontWeight: 600 }}>New word</span>
+              <input
+                maxLength={50}
+                value={newWord}
+                onChange={(e) => setNewWord(e.target.value.slice(0, 50))}
+                placeholder="Enter a new word"
+                onKeyDown={(e) => e.stopPropagation()}
+                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
+              <span style={{ fontWeight: 600 }}>Translation</span>
+              <input
+                maxLength={50}
+                value={newTranslation}
+                onChange={(e) => setNewTranslation(e.target.value.slice(0, 50))}
+                placeholder="Enter translation"
+                onKeyDown={(e) => e.stopPropagation()}
+                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
+              />
+            </label>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', alignContent: 'center' }}>
+              {addSuccess && (
+                <div style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
+                  Word successfully added
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAddWord();
+                  }}
+                  disabled={isAddingWord}
+                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: isAddingWord ? 'not-allowed' : 'pointer', opacity: isAddingWord ? 0.7 : 1, WebkitAppearance: 'none', appearance: 'none' }}
+                >
+                  {isAddingWord ? 'Adding…' : 'Add'}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeAddModal();
+                  }}
+                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            {addError && (
+              <div style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addError}</div>
+            )}
           </div>
         </div>
       )}
@@ -1443,7 +1695,7 @@ export default function Home() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Reset cache</div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Reset cache & history</div>
                 </div>
                 <button
                   type="button"
