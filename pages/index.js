@@ -755,7 +755,7 @@ export default function Home() {
     setIsGenerating(false);
     setIsMenuOpen(false);
     setIsSearchFocused(false);
-    setSearchTerm(normalized);
+    setSearchTerm('');
 
     if (isRandomOrder) {
       setRandomHistory([targetIndex]);
@@ -989,7 +989,7 @@ export default function Home() {
               border: '1px solid var(--border-color)',
               background: 'var(--surface)',
               color: 'var(--text-primary)',
-              fontSize: '0.95rem',
+              fontSize: '16px',
               boxSizing: 'border-box',
             }}
           />
