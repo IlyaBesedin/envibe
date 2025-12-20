@@ -183,7 +183,6 @@ export default function Home() {
   const [newWord, setNewWord] = useState('');
   const [newTranslation, setNewTranslation] = useState('');
   const [addError, setAddError] = useState('');
-  const [isAddingWord, setIsAddingWord] = useState(false);
   const [addSuccess, setAddSuccess] = useState(false);
   const toggleButtonStyle = useCallback((active) => ({
     padding: '0.4rem 0.8rem',
@@ -439,38 +438,57 @@ export default function Home() {
       headers.Authorization = `Bearer ${currentAccessToken}`;
     }
 
-    const response = await fetch(VOCABULARY_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds timeout
 
-    if (response.status === 400 && allowRefresh) {
-      if (tokenStore.refreshToken) {
-        try {
-          await refreshAccessToken();
-        } catch (refreshError) {
-          await logoutDueToRefreshFailure();
-          throw refreshError;
+    try {
+      const response = await fetch(VOCABULARY_URL, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.status === 400 && allowRefresh) {
+        if (tokenStore.refreshToken) {
+          try {
+            await refreshAccessToken();
+          } catch (refreshError) {
+            await logoutDueToRefreshFailure();
+            throw refreshError;
+          }
+          return addWordToApi(payload, false);
         }
-        return addWordToApi(payload, false);
+        await logoutDueToRefreshFailure();
+        throw new TokenRefreshError('Refresh token missing for retry');
       }
-      await logoutDueToRefreshFailure();
-      throw new TokenRefreshError('Refresh token missing for retry');
-    }
 
-    if (!response.ok) {
-      let message = `Request failed with status ${response.status}`;
-      try {
-        const err = await response.json();
-        if (err && (err.message || err.error)) {
-          message = err.message || err.error;
-        }
-      } catch (_) {}
-      throw new Error(message);
-    }
+      if (!response.ok) {
+        let message = `Request failed with status ${response.status}`;
+        try {
+          const err = await response.json();
+          if (err && (err.message || err.error)) {
+            message = err.message || err.error;
+          }
+        } catch (_) {}
+        throw new Error(message);
+      }
 
-    return response.json();
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      
+      // Handle timeout/abort error
+      if (error.name === 'AbortError') {
+        throw new Error('Failed to add word');
+      }
+      
+      // Re-throw other errors
+      throw error;
+    }
   }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
 
   const openAddModal = useCallback((prefill = '') => {
@@ -486,11 +504,10 @@ export default function Home() {
   }, [blurSearchInput]);
 
   const closeAddModal = useCallback(() => {
-    if (isAddingWord) return;
     setIsAddModalOpen(false);
     setAddError('');
     setAddSuccess(false);
-  }, [isAddingWord]);
+  }, []);
 
   const handleAddWord = useCallback(async () => {
     const key = newWord.trim();
@@ -505,7 +522,6 @@ export default function Home() {
       return;
     }
     try {
-      setIsAddingWord(true);
       setAddError('');
       setAddSuccess(false);
       await addWordToApi({ key, translate });
@@ -517,8 +533,6 @@ export default function Home() {
       await loadVocabulary({ skipCache: true });
     } catch (error) {
       setAddError(error instanceof Error ? error.message : 'Failed to add word');
-    } finally {
-      setIsAddingWord(false);
     }
   }, [newWord, newTranslation, addWordToApi, loadVocabulary, accessToken, user]);
 
@@ -1051,7 +1065,8 @@ export default function Home() {
           gridTemplateColumns: 'auto 1fr auto',
           alignItems: 'center',
           gap: '0.8rem',
-          zIndex: 12,
+          zIndex: (isSettingsOpen || isAddModalOpen) ? 1 : 12,
+          pointerEvents: (isSettingsOpen || isAddModalOpen) ? 'none' : 'auto',
         }}
       >
         <button
@@ -1092,7 +1107,14 @@ export default function Home() {
             />
           ))}
         </button>
-        <div style={{ position: 'relative', width: '100%', maxWidth: '520px', justifySelf: 'center' }}>
+        <div style={{ 
+            position: 'relative', 
+            width: '100%', 
+            maxWidth: '520px', 
+            justifySelf: 'center',
+            pointerEvents: (isSettingsOpen || isAddModalOpen) ? 'none' : 'auto',
+            zIndex: (isSettingsOpen || isAddModalOpen) ? 1 : 10
+            }}>
           <input
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
@@ -1114,6 +1136,7 @@ export default function Home() {
               color: 'var(--text-primary)',
               fontSize: '16px',
               boxSizing: 'border-box',
+              pointerEvents: (isSettingsOpen || isAddModalOpen) ? 'none' : 'auto',
             }}
           />
           {searchTerm.trim().length >= 3 && isSearchFocused && (
@@ -1624,10 +1647,9 @@ export default function Home() {
                     e.stopPropagation();
                     handleAddWord();
                   }}
-                  disabled={isAddingWord}
-                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: isAddingWord ? 'not-allowed' : 'pointer', opacity: isAddingWord ? 0.7 : 1, WebkitAppearance: 'none', appearance: 'none' }}
+                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
                 >
-                  {isAddingWord ? 'Adding…' : 'Add'}
+                  Add
                 </button>
                 <button
                   type="button"
@@ -1660,6 +1682,7 @@ export default function Home() {
             alignItems: 'center',
             justifyContent: 'center',
             padding: '1rem',
+            zIndex: 100,
           }}
           role="dialog"
           aria-modal="true"
@@ -1727,7 +1750,7 @@ export default function Home() {
                       localStorage.setItem(LOCAL_STORAGE_LEVEL_KEY, level);
                     } catch (_) {}
                   }}
-                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)' }}
+                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', colorScheme: theme === 'dark' ? 'dark' : 'light' }}
                 >
                   {['A1','A2','B1','B2','C1','C2'].map((lvl) => (
                     <option key={lvl} value={lvl}>{lvl}</option>
@@ -1742,7 +1765,7 @@ export default function Home() {
                 <select
                   value={selectedTopic}
                   onChange={(e) => setSelectedTopic(e.target.value)}
-                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', minWidth: '9rem' }}
+                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', minWidth: '9rem', colorScheme: theme === 'dark' ? 'dark' : 'light' }}
                 >
                   {SENTENCE_TOPIC_OPTIONS.map((topic) => (
                     <option key={topic.value} value={topic.value}>
