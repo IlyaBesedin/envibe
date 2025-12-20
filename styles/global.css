@@ -59,3 +59,8 @@ textarea {
   font-size: 16px;
   color: inherit;
 }
+
+/* Fix select dropdown arrows in dark theme */
+select {
+  color-scheme: light dark;
+}
