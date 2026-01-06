@@ -184,6 +184,7 @@ export default function Home() {
   const [newTranslation, setNewTranslation] = useState('');
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState(false);
+  const [isAddLoading, setIsAddLoading] = useState(false);
   const toggleButtonStyle = useCallback((active) => ({
     padding: '0.4rem 0.8rem',
     borderRadius: '0.4rem',
@@ -497,6 +498,7 @@ export default function Home() {
     setNewTranslation('');
     setAddError('');
     setAddSuccess(false);
+    setIsAddLoading(false);
     setIsAddModalOpen(true);
     setIsMenuOpen(false);
     setIsSettingsOpen(false);
@@ -507,6 +509,7 @@ export default function Home() {
     setIsAddModalOpen(false);
     setAddError('');
     setAddSuccess(false);
+    setIsAddLoading(false);
   }, []);
 
   const handleAddWord = useCallback(async () => {
@@ -524,6 +527,7 @@ export default function Home() {
     try {
       setAddError('');
       setAddSuccess(false);
+      setIsAddLoading(true);
       await addWordToApi({ key, translate });
       setNewWord('');
       setNewTranslation('');
@@ -533,6 +537,8 @@ export default function Home() {
       await loadVocabulary({ skipCache: true });
     } catch (error) {
       setAddError(error instanceof Error ? error.message : 'Failed to add word');
+    } finally {
+      setIsAddLoading(false);
     }
   }, [newWord, newTranslation, addWordToApi, loadVocabulary, accessToken, user]);
 
@@ -1647,9 +1653,18 @@ export default function Home() {
                     e.stopPropagation();
                     handleAddWord();
                   }}
-                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+                  disabled={isAddLoading}
+                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: isAddLoading ? 'default' : 'pointer', WebkitAppearance: 'none', appearance: 'none', opacity: isAddLoading ? 0.85 : 1 }}
                 >
-                  Add
+                  {isAddLoading ? (
+                    <span className="add-button-dots" aria-live="polite">
+                      <span className="add-button-dot" />
+                      <span className="add-button-dot" />
+                      <span className="add-button-dot" />
+                    </span>
+                  ) : (
+                    'Add'
+                  )}
                 </button>
                 <button
                   type="button"
