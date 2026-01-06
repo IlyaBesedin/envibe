@@ -64,3 +64,39 @@ textarea {
 select {
   color-scheme: light dark;
 }
+
+.add-button-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 3ch;
+}
+
+.add-button-dot {
+  width: 0.28rem;
+  height: 0.28rem;
+  border-radius: 50%;
+  background: var(--text-on-accent);
+  opacity: 0.6;
+  animation: add-button-dot-bounce 1s infinite ease-in-out;
+}
+
+.add-button-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.add-button-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes add-button-dot-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
