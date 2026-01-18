@@ -4,7 +4,9 @@ import { stackClientApp } from '../stack/client';
 import { SENTENCE_TOPIC_OPTIONS } from '../lib/sentenceTopics';
 
 const VOCABULARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/vocabulary';
+const DICTIONARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/dictionary';
 const LOCAL_STORAGE_KEY = 'vocabularyData';
+const LOCAL_STORAGE_DICTIONARY_KEY = 'dictionaryData';
 const LOCAL_STORAGE_HISTORY_KEY = 'vocabularyViewedHistory';
 const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
 const LOCAL_STORAGE_RANDOM_KEY = 'vocabularyRandomOrder';
@@ -155,10 +157,14 @@ export default function Home() {
       setAuthError(e instanceof Error ? e.message : 'Failed to sign in');
     }
   }
+  const [allEntries, setAllEntries] = useState([]);
   const [entryList, setEntryList] = useState([]);
+  const [dictionaryList, setDictionaryList] = useState([]);
+  const [selectedDictionaryId, setSelectedDictionaryId] = useState(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isDictionaryLoading, setIsDictionaryLoading] = useState(true);
   const [viewedHistory, setViewedHistory] = useState([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -182,9 +188,13 @@ export default function Home() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newWord, setNewWord] = useState('');
   const [newTranslation, setNewTranslation] = useState('');
+  const [newDictionaryId, setNewDictionaryId] = useState(null);
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState(false);
   const [isAddLoading, setIsAddLoading] = useState(false);
+  const [isSentenceCopied, setIsSentenceCopied] = useState(false);
+  const [isSentenceGenerationHidden, setIsSentenceGenerationHidden] = useState(false);
+  const [searchOverrideEntry, setSearchOverrideEntry] = useState(null);
   const toggleButtonStyle = useCallback((active) => ({
     padding: '0.4rem 0.8rem',
     borderRadius: '0.4rem',
@@ -352,11 +362,32 @@ export default function Home() {
         const bId = typeof b.id === 'number' ? b.id : Number.MAX_SAFE_INTEGER;
         return aId - bId;
       })
-      .map(({ key, translate, id }) => ({
-        id: typeof id === 'number' ? id : undefined,
-        word: String(key),
-        translation: String(translate),
-      }));
+      .map(({ key, translate, id, dict_id }) => {
+        const parsedDictId = typeof dict_id === 'number' ? dict_id : Number(dict_id);
+        return {
+          id: typeof id === 'number' ? id : undefined,
+          word: String(key),
+          translation: String(translate),
+          dict_id: Number.isFinite(parsedDictId) ? parsedDictId : undefined,
+        };
+      });
+  }, []);
+
+  const mapApiDataToDictionaries = useCallback((data) => {
+    if (!Array.isArray(data)) return [];
+    return data
+      .map((item) => {
+        if (!item) return null;
+        const parsedId = typeof item.id === 'number' ? item.id : Number(item.id);
+        if (!Number.isFinite(parsedId) || item.title === undefined) return null;
+        return {
+          id: parsedId,
+          lang: typeof item.lang === 'string' ? item.lang : '',
+          title: String(item.title).trim(),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.id - b.id);
   }, []);
 
   const fetchVocabularyFromApi = useCallback(async (allowRefresh = true) => {
@@ -389,6 +420,87 @@ export default function Home() {
     return response.json();
   }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
 
+  const fetchDictionaryFromApi = useCallback(async (allowRefresh = true) => {
+    const headers = { Accept: 'application/json' };
+    const currentAccessToken = tokenStore.accessToken || accessToken;
+    if (currentAccessToken) {
+      headers.Authorization = `Bearer ${currentAccessToken}`;
+    }
+
+    const response = await fetch(DICTIONARY_URL, { method: 'GET', headers });
+
+    if (response.status === 400 && allowRefresh) {
+      if (tokenStore.refreshToken) {
+        try {
+          await refreshAccessToken();
+        } catch (refreshError) {
+          await logoutDueToRefreshFailure();
+          throw refreshError;
+        }
+        return fetchDictionaryFromApi(false);
+      }
+      await logoutDueToRefreshFailure();
+      throw new TokenRefreshError('Refresh token missing for retry');
+    }
+
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+
+    return response.json();
+  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+
+  const loadDictionary = useCallback(async (options = {}) => {
+    const { skipCache = false, isActiveRef } = options;
+    const isActive = () => !isActiveRef || isActiveRef.active;
+    const effectiveAccessToken = tokenStore.accessToken || accessToken;
+    if (!user && !effectiveAccessToken) return;
+    try {
+      setIsDictionaryLoading(true);
+      if (!skipCache && typeof window !== 'undefined') {
+        const cached = localStorage.getItem(LOCAL_STORAGE_DICTIONARY_KEY);
+        if (cached) {
+          const cachedObject = JSON.parse(cached);
+          if (!isActive()) return;
+          const dictionariesFromCache = mapApiDataToDictionaries(cachedObject);
+          setDictionaryList(dictionariesFromCache);
+          setIsDictionaryLoading(false);
+          setSelectedDictionaryId((prevId) => {
+            if (dictionariesFromCache.length === 0) return null;
+            if (prevId && dictionariesFromCache.some((dict) => dict.id === prevId)) {
+              return prevId;
+            }
+            return dictionariesFromCache[0].id;
+          });
+        }
+      }
+
+      const data = await fetchDictionaryFromApi(true);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(LOCAL_STORAGE_DICTIONARY_KEY, JSON.stringify(data));
+      }
+
+      if (!isActive()) return;
+      const dictionaries = mapApiDataToDictionaries(data);
+      setDictionaryList(dictionaries);
+      setSelectedDictionaryId((prevId) => {
+        if (dictionaries.length === 0) return null;
+        if (prevId && dictionaries.some((dict) => dict.id === prevId)) {
+          return prevId;
+        }
+        return dictionaries[0].id;
+      });
+      setIsDictionaryLoading(false);
+    } catch (error) {
+      if (!isActive()) return;
+      if (error instanceof TokenRefreshError) {
+        return;
+      }
+      setIsDictionaryLoading(false);
+    }
+  }, [accessToken, user, fetchDictionaryFromApi, mapApiDataToDictionaries]);
+
   const loadVocabulary = useCallback(async (options = {}) => {
     const { skipCache = false, isActiveRef } = options;
     const isActive = () => !isActiveRef || isActiveRef.active;
@@ -402,7 +514,7 @@ export default function Home() {
           const cachedObject = JSON.parse(cached);
           if (!isActive()) return;
           const entriesFromCache = mapApiDataToEntries(cachedObject);
-          setEntryList(entriesFromCache);
+          setAllEntries(entriesFromCache);
           setIsLoading(false);
         }
       }
@@ -415,7 +527,7 @@ export default function Home() {
 
       if (!isActive()) return;
       const entries = mapApiDataToEntries(data);
-      setEntryList(entries);
+      setAllEntries(entries);
       setErrorMessage('');
       setIsLoading(false);
     } catch (error) {
@@ -496,6 +608,7 @@ export default function Home() {
     const normalized = prefill.trim().slice(0, 50);
     setNewWord(normalized);
     setNewTranslation('');
+    setNewDictionaryId(selectedDictionaryId);
     setAddError('');
     setAddSuccess(false);
     setIsAddLoading(false);
@@ -503,7 +616,7 @@ export default function Home() {
     setIsMenuOpen(false);
     setIsSettingsOpen(false);
     blurSearchInput();
-  }, [blurSearchInput]);
+  }, [blurSearchInput, selectedDictionaryId]);
 
   const closeAddModal = useCallback(() => {
     setIsAddModalOpen(false);
@@ -519,6 +632,10 @@ export default function Home() {
       setAddError('Both fields are required');
       return;
     }
+    if (!newDictionaryId) {
+      setAddError('Dictionary is required');
+      return;
+    }
     const effectiveAccessToken = tokenStore.accessToken || accessToken;
     if (!user && !effectiveAccessToken) {
       setAddError('Authorization required');
@@ -528,7 +645,7 @@ export default function Home() {
       setAddError('');
       setAddSuccess(false);
       setIsAddLoading(true);
-      await addWordToApi({ key, translate });
+      await addWordToApi({ key, translate, dict_id: newDictionaryId });
       setNewWord('');
       setNewTranslation('');
       setSearchTerm('');
@@ -540,7 +657,7 @@ export default function Home() {
     } finally {
       setIsAddLoading(false);
     }
-  }, [newWord, newTranslation, addWordToApi, loadVocabulary, accessToken, user]);
+  }, [newWord, newTranslation, newDictionaryId, addWordToApi, loadVocabulary, accessToken, user]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -556,10 +673,45 @@ export default function Home() {
   }, [authLoading, user, accessToken, loadVocabulary]);
 
   useEffect(() => {
+    if (authLoading) return;
+    const effectiveAccessToken = tokenStore.accessToken || accessToken;
+    if (!user && !effectiveAccessToken) return;
+
+    const state = { active: true };
+    loadDictionary({ isActiveRef: state });
+
+    return () => {
+      state.active = false;
+    };
+  }, [authLoading, user, accessToken, loadDictionary]);
+
+  useEffect(() => {
     if (isMenuOpen || isSettingsOpen || isAddModalOpen) {
       blurSearchInput();
     }
   }, [isMenuOpen, isSettingsOpen, isAddModalOpen, blurSearchInput]);
+
+  useEffect(() => {
+    if (selectedDictionaryId === null) {
+      setEntryList(allEntries);
+      return;
+    }
+    setEntryList(allEntries.filter((entry) => entry.dict_id === selectedDictionaryId));
+  }, [allEntries, selectedDictionaryId]);
+
+  useEffect(() => {
+    if (selectedDictionaryId === null) return;
+    initialPositionResolvedRef.current = false;
+    setRandomHistory([]);
+    setRandomHistoryPos(-1);
+    setSearchOverrideEntry(null);
+  }, [selectedDictionaryId]);
+
+  useEffect(() => {
+    if (newDictionaryId !== null) return;
+    if (selectedDictionaryId === null) return;
+    setNewDictionaryId(selectedDictionaryId);
+  }, [newDictionaryId, selectedDictionaryId]);
 
   // Load history on mount
   useEffect(() => {
@@ -586,6 +738,22 @@ export default function Home() {
     }
   }, [authLoading, user, accessToken]);
 
+  const filteredViewedHistory = useMemo(() => {
+    if (selectedDictionaryId === null) return viewedHistory;
+    return viewedHistory.filter((item) => item && item.dict_id === selectedDictionaryId);
+  }, [viewedHistory, selectedDictionaryId]);
+
+  const learningEntries = useMemo(
+    () => filteredViewedHistory
+      .filter((item) => item && item.word && item.translation)
+      .map(({ word, translation, id }) => ({
+        word,
+        translation,
+        id,
+      })),
+    [filteredViewedHistory],
+  );
+
   // Rebuild navigation order whenever entries or history change
   useEffect(() => {
     if (entryList.length === 0) {
@@ -604,19 +772,19 @@ export default function Home() {
     if (!initialPositionResolvedRef.current) {
       let targetIndex = -1;
 
-      if (viewedHistory.length > 0) {
+      if (filteredViewedHistory.length > 0) {
         let targetEntry = null;
         if (isRandomOrder) {
-          targetEntry = viewedHistory[viewedHistory.length - 1];
+          targetEntry = filteredViewedHistory[filteredViewedHistory.length - 1];
         } else {
-          targetEntry = viewedHistory.reduce((latest, item) => {
+          targetEntry = filteredViewedHistory.reduce((latest, item) => {
             const latestTime = typeof latest?.viewedAt === 'number' ? latest.viewedAt : -Infinity;
             const currentTime = typeof item?.viewedAt === 'number' ? item.viewedAt : -Infinity;
             if (currentTime >= latestTime) return item;
             return latest;
           }, null);
           if (!targetEntry) {
-            targetEntry = viewedHistory[viewedHistory.length - 1];
+            targetEntry = filteredViewedHistory[filteredViewedHistory.length - 1];
           }
         }
 
@@ -643,7 +811,7 @@ export default function Home() {
 
     setCurrentIndex((prevIndex) => (ord.includes(prevIndex) ? prevIndex : ord[0]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entryList, viewedHistory, isHistoryLoaded, isRandomOrder]);
+  }, [entryList, filteredViewedHistory, isHistoryLoaded, isRandomOrder]);
 
   // Seed random history when random mode is enabled
   useEffect(() => {
@@ -655,23 +823,12 @@ export default function Home() {
     }
   }, [isRandomOrder]);
 
-  const learningEntries = useMemo(
-    () => viewedHistory
-      .filter((item) => item && item.word && item.translation)
-      .map(({ word, translation, id }) => ({
-        word,
-        translation,
-        id,
-      })),
-    [viewedHistory],
-  );
-
   const searchSuggestions = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     if (query.length < 3) return [];
 
     const unique = new Set();
-    entryList.forEach((entry) => {
+    allEntries.forEach((entry) => {
       if (!entry?.word) return;
       const lower = entry.word.toLowerCase();
       if (lower.includes(query)) {
@@ -680,7 +837,7 @@ export default function Home() {
     });
 
     return Array.from(unique).slice(0, 5);
-  }, [searchTerm, entryList]);
+  }, [searchTerm, allEntries]);
 
   useEffect(() => {
     if (!isLearningMode) return;
@@ -700,6 +857,26 @@ export default function Home() {
     setRevealedTranslations({});
   }, [isLearningMode]);
 
+  const addEntryToHistory = useCallback((entry) => {
+    if (!entry?.word || !entry?.translation) return;
+    setViewedHistory((prev) => {
+      if (prev.some((h) => h && h.word === entry.word)) {
+        return prev;
+      }
+      const next = [...prev, {
+        id: entry.id ?? undefined,
+        word: entry.word,
+        translation: entry.translation,
+        dict_id: entry.dict_id ?? undefined,
+        viewedAt: Date.now(),
+      }];
+      try {
+        localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  }, []);
+
   // Track viewed words whenever the current entry changes
   useEffect(() => {
     if (isLearningMode) return;
@@ -708,31 +885,27 @@ export default function Home() {
     const entry = entryList[currentIndex];
     if (!entry) return;
 
-    setViewedHistory((prev) => {
-      // Avoid duplicates in history (applies to both modes)
-      if (prev.some((h) => h && h.word === entry.word)) {
-        return prev;
-      }
-      const next = [...prev, {
-        id: entry.id ?? undefined,
-        word: entry.word,
-        translation: entry.translation,
-        viewedAt: Date.now(),
-      }];
-      try {
-        localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(next));
-      } catch (_) {}
-      return next;
-    });
-  }, [currentIndex, entryList, isLearningMode]);
+    addEntryToHistory(entry);
+  }, [currentIndex, entryList, isLearningMode, addEntryToHistory]);
+
+  useEffect(() => {
+    if (isLearningMode) return;
+    if (typeof window === 'undefined') return;
+    if (!searchOverrideEntry) return;
+    addEntryToHistory(searchOverrideEntry);
+  }, [searchOverrideEntry, isLearningMode, addEntryToHistory]);
 
   // Clear generated sentence when navigating to a different word
   useEffect(() => {
     setGeneratedSentence('');
     setIsGenerating(false);
+    setIsSentenceCopied(false);
   }, [currentIndex, learningIndex, isLearningMode]);
 
   const handleAdvance = useCallback(() => {
+    if (searchOverrideEntry) {
+      setSearchOverrideEntry(null);
+    }
     if (isLearningMode) {
       if (learningEntries.length === 0) return;
       setLearningIndex((prev) => (prev + 1) % learningEntries.length);
@@ -774,9 +947,13 @@ export default function Home() {
     isRandomOrder,
     randomHistory,
     randomHistoryPos,
+    searchOverrideEntry,
   ]);
 
   const handleBack = useCallback(() => {
+    if (searchOverrideEntry) {
+      setSearchOverrideEntry(null);
+    }
     if (isLearningMode) {
       if (learningEntries.length === 0) return;
       setLearningIndex((prev) => {
@@ -811,6 +988,7 @@ export default function Home() {
     isRandomOrder,
     randomHistoryPos,
     randomHistory,
+    searchOverrideEntry,
   ]);
 
   const handleSignOut = useCallback(async () => {
@@ -827,7 +1005,10 @@ export default function Home() {
       setAuthUserId('');
       setTokenStoreTokens('', '');
       setViewedHistory([]);
+      setAllEntries([]);
       setEntryList([]);
+      setDictionaryList([]);
+      setSelectedDictionaryId(null);
       setRandomHistory([]);
       setRandomHistoryPos(-1);
       initialPositionResolvedRef.current = false;
@@ -835,19 +1016,37 @@ export default function Home() {
       setIsLearningMode(false);
       setLearningIndex(0);
       setRevealedTranslations({});
+      setSearchOverrideEntry(null);
+      setNewDictionaryId(null);
       setSelectedTopic('random');
     } catch (_) {}
   }, [user]);
 
+  const selectedDictionary = useMemo(
+    () => dictionaryList.find((dict) => dict.id === selectedDictionaryId) || null,
+    [dictionaryList, selectedDictionaryId],
+  );
+  const selectedDictionaryTitle = selectedDictionary?.title ? String(selectedDictionary.title) : '';
+  const selectedTopicLabel = useMemo(() => {
+    const match = SENTENCE_TOPIC_OPTIONS.find((topic) => topic.value === selectedTopic);
+    return match?.label ? String(match.label) : String(selectedTopic || '');
+  }, [selectedTopic]);
+
   const activeEntries = isLearningMode ? learningEntries : entryList;
   const activeIndex = isLearningMode ? learningIndex : currentIndex;
   const currentEntry = activeEntries.length > 0 ? activeEntries[activeIndex] : null;
-  const displayWord = currentEntry ? currentEntry.word : '';
-  const displayTranslation = currentEntry ? currentEntry.translation : '';
-  const isTranslationRevealed = !isLearningMode || !currentEntry
+  const displayedEntry = (!isLearningMode && searchOverrideEntry) ? searchOverrideEntry : currentEntry;
+  const displayWord = displayedEntry ? displayedEntry.word : '';
+  const displayTranslation = displayedEntry ? displayedEntry.translation : '';
+  const isTranslationRevealed = !isLearningMode || !displayedEntry
     ? true
-    : Boolean(revealedTranslations[currentEntry.word]);
+    : Boolean(revealedTranslations[displayedEntry.word]);
   const isLearningAvailable = learningEntries.length > 0;
+  const isEmptyDictionaryState = !isLoading
+    && !errorMessage
+    && !displayedEntry
+    && selectedDictionaryId !== null
+    && entryList.length === 0;
 
   useEffect(() => {
     if (isLearningMode && !isLearningAvailable) {
@@ -861,10 +1060,16 @@ export default function Home() {
     try {
       setIsGenerating(true);
       setGeneratedSentence('');
+      const dict = selectedDictionary?.lang;
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: displayWord, level: selectedLevel, topic: selectedTopic }),
+        body: JSON.stringify({
+          word: displayWord,
+          dict,
+          level: selectedLevel,
+          topic: selectedTopic,
+        }),
       });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -882,10 +1087,10 @@ export default function Home() {
   const handleSelectSuggestion = useCallback((word) => {
     const normalized = word?.trim();
     if (!normalized) return;
-    const targetIndex = entryList.findIndex(
+    const targetEntry = allEntries.find(
       (entry) => entry?.word && entry.word.toLowerCase() === normalized.toLowerCase(),
     );
-    if (targetIndex === -1) {
+    if (!targetEntry) {
       return;
     }
 
@@ -899,13 +1104,13 @@ export default function Home() {
     }
     setSearchTerm('');
 
-    if (isRandomOrder) {
-      setRandomHistory([targetIndex]);
-      setRandomHistoryPos(0);
-    }
-
-    setCurrentIndex(targetIndex);
-  }, [entryList, isRandomOrder]);
+    setSearchOverrideEntry({
+      id: targetEntry.id ?? undefined,
+      word: targetEntry.word,
+      translation: targetEntry.translation,
+      dict_id: targetEntry.dict_id ?? undefined,
+    });
+  }, [allEntries]);
 
   // Gate: show auth UI first
   if (authLoading) {
@@ -1253,20 +1458,63 @@ export default function Home() {
       >
         <div style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.35rem' }}>Menu</div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Dark Theme</div>
+          <div style={{ fontWeight: 600 }}>Dictionary</div>
+          <select
+            value={selectedDictionaryId ?? ''}
+            onChange={(event) => {
+              event.stopPropagation();
+              const nextValue = event.target.value;
+              if (!nextValue) {
+                setSelectedDictionaryId(null);
+                return;
+              }
+              const nextId = Number(nextValue);
+              setSelectedDictionaryId(Number.isNaN(nextId) ? null : nextId);
+            }}
+            disabled={isDictionaryLoading || dictionaryList.length === 0}
+            style={{
+              padding: '0.45rem 0.6rem',
+              borderRadius: '0.45rem',
+              border: '1px solid var(--border-color)',
+              background: 'var(--input-bg)',
+              color: 'var(--text-primary)',
+              fontSize: '0.95rem',
+              WebkitAppearance: 'none',
+              appearance: 'none',
+              opacity: isDictionaryLoading ? 0.7 : 1,
+              width: `calc(${Math.max(6, selectedDictionaryTitle.length)}ch + 1.2rem)`,
+              maxWidth: '100%',
+              textAlign: 'center',
+              textAlignLast: 'center',
+            }}
+          >
+            {dictionaryList.length === 0 ? (
+              <option value="">{isDictionaryLoading ? 'Loading…' : 'No dictionaries'}</option>
+            ) : (
+              dictionaryList.map((dict) => (
+                <option key={dict.id} value={dict.id}>
+                  {dict.title}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+        <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.15rem -0.25rem 0', paddingTop: '0.35rem' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Add new word</div>
           <button
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+              openAddModal('');
             }}
-            style={toggleButtonStyle(theme === 'dark')}
+            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
           >
-            {theme === 'dark' ? 'On' : 'Off'}
+            Add
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Learning Mode</div>
+          <div style={{ fontWeight: 600 }}>Learning mode</div>
           <button
             type="button"
             onClick={(event) => {
@@ -1293,7 +1541,7 @@ export default function Home() {
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Random Order</div>
+          <div style={{ fontWeight: 600 }}>Random order</div>
           <button
             type="button"
             onClick={(event) => {
@@ -1307,19 +1555,6 @@ export default function Home() {
             style={toggleButtonStyle(isRandomOrder)}
           >
             {isRandomOrder ? 'On' : 'Off'}
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Add New Word</div>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              openAddModal('');
-            }}
-            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-          >
-            Add
           </button>
         </div>
         <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.15rem -0.25rem 0', paddingTop: '0.35rem' }} />
@@ -1418,7 +1653,7 @@ export default function Home() {
             <p>{errorMessage}</p>
           </>
         )}
-        {!isLoading && !errorMessage && currentEntry && (
+        {!isLoading && !errorMessage && displayedEntry && (
           <div
             style={{
               position: 'relative',
@@ -1440,13 +1675,13 @@ export default function Home() {
                 justifyContent: 'center',
               }}
             >
-              {isLearningMode && currentEntry && !isTranslationRevealed ? (
+              {isLearningMode && displayedEntry && !isTranslationRevealed ? (
                 <button
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    if (!currentEntry?.word) return;
-                    setRevealedTranslations((prev) => ({ ...prev, [currentEntry.word]: true }));
+                    if (!displayedEntry?.word) return;
+                    setRevealedTranslations((prev) => ({ ...prev, [displayedEntry.word]: true }));
                   }}
                   style={{
                     fontSize: '0.95rem',
@@ -1477,25 +1712,27 @@ export default function Home() {
                 </p>
               )}
             </div>
-            <button
-              type="button"
-              onClick={handleGenerateSentence}
-              style={{
-                marginTop: '0.75rem',
-                padding: '0.5rem 0.9rem',
-                borderRadius: '0.4rem',
-                border: '1px solid var(--border-color)',
-                background: 'var(--surface)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                color: 'var(--text-on-primary)',
-                WebkitAppearance: 'none',
-                appearance: 'none',
-              }}
-              aria-label="Generate sentence"
-            >
-              {isGenerating ? 'Generating…' : 'Generate Sentence'}
-            </button>
+            {!isSentenceGenerationHidden && (
+              <button
+                type="button"
+                onClick={handleGenerateSentence}
+                style={{
+                  marginTop: '0.75rem',
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: '0.4rem',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--surface)',
+                  cursor: 'pointer',
+                  fontSize: '0.95rem',
+                  color: 'var(--text-on-primary)',
+                  WebkitAppearance: 'none',
+                  appearance: 'none',
+                }}
+                aria-label="Generate sentence"
+              >
+                {isGenerating ? 'Generating…' : 'Generate Sentence'}
+              </button>
+            )}
             {generatedSentence && (
               <div
                 style={{
@@ -1515,20 +1752,102 @@ export default function Home() {
                   boxSizing: 'border-box',
                   color: 'var(--text-primary)',
                   lineHeight: 1.6,
+                  display: 'grid',
+                  gap: '0.35rem',
                 }}
               >
-                {generatedSentence}
+                <div>{generatedSentence}</div>
+                <div style={{ justifySelf: 'end', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                  {isSentenceCopied && (
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', opacity: 0.90 }}>
+                      Copied!
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={async (event) => {
+                      event.stopPropagation();
+                      if (!generatedSentence) return;
+                      try {
+                        if (navigator?.clipboard?.writeText) {
+                          await navigator.clipboard.writeText(generatedSentence);
+                          setIsSentenceCopied(true);
+                          setTimeout(() => setIsSentenceCopied(false), 3000);
+                        }
+                      } catch (_) {}
+                    }}
+                    aria-label="Copy generated sentence"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '0.2rem',
+                      border: 'none',
+                      borderRadius: '0.4rem',
+                      background: 'transparent',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                      WebkitAppearance: 'none',
+                      appearance: 'none',
+                    }}
+                  >
+                    <svg
+                      enableBackground="new 0 0 24 24"
+                      focusable="false"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      width="18"
+                      aria-hidden="true"
+                      style={{ opacity: 0.9 }}
+                    >
+                      <g>
+                        <rect fill="none" height="24" width="24" />
+                      </g>
+                      <g>
+                        <path fill="currentColor" d="M16,20H5V6H3v14c0,1.1,0.9,2,2,2h11V20z M20,16V4c0-1.1-0.9-2-2-2H9C7.9,2,7,2.9,7,4v12c0,1.1,0.9,2,2,2h9 C19.1,18,20,17.1,20,16z M18,16H9V4h9V16z" />
+                      </g>
+                    </svg>
+                  </button>
+                </div>
               </div>
             )}
           </div>
         )}
-        {!isLoading && !errorMessage && !currentEntry && <p>No vocabulary available. Try reloading.</p>}
+        {isEmptyDictionaryState && (
+          <div style={{ display: 'grid', gap: '1rem', justifyItems: 'center' }}>
+            <p style={{ margin: 0, opacity: 0.8, lineHeight: 1.4 }}>
+              Dictionary {selectedDictionary?.title ? `"${selectedDictionary.title}"` : 'This dictionary'} doesn't contain any words. 
+              <br />Use the button below to add new words.
+            </p>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openAddModal('');
+              }}
+              style={{
+                padding: '0.5rem 0.9rem',
+                borderRadius: '0.45rem',
+                border: '1px solid var(--accent-strong)',
+                background: 'var(--accent-strong)',
+                color: 'var(--text-on-accent)',
+                cursor: 'pointer',
+                WebkitAppearance: 'none',
+                appearance: 'none',
+              }}
+            >
+              Add word
+            </button>
+          </div>
+        )}
+        {!isLoading && !errorMessage && !displayedEntry && !isEmptyDictionaryState && (
+          <p>No vocabulary available. Try reloading.</p>
+        )}
       </div>
 
       {/* History overlay */}
       {isHistoryOpen && (
         <div
-          onClick={(e) => e.stopPropagation()}
+          onClick={() => setIsHistoryOpen(false)}
           style={{
             position: 'fixed',
             inset: 0,
@@ -1542,7 +1861,10 @@ export default function Home() {
           aria-modal="true"
           aria-label="History"
         >
-          <div style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', maxHeight: '80vh', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', maxHeight: '80vh', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
               <strong>History</strong>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -1570,11 +1892,11 @@ export default function Home() {
               </div>
             </div>
             <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
-              {viewedHistory.length === 0 ? (
+              {filteredViewedHistory.length === 0 ? (
                 <p style={{ padding: '1rem', opacity: 0.7 }}>No viewed words yet.</p>
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {viewedHistory.map((item, index) => (
+                  {filteredViewedHistory.map((item, index) => (
                     <li key={`${item.id ?? 'noid'}-${index}`} style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
                       <div style={{ fontWeight: 600 }}>{item.word}</div>
                       <div style={{ opacity: 0.8 }}>{item.translation}</div>
@@ -1639,6 +1961,34 @@ export default function Home() {
                 onKeyDown={(e) => e.stopPropagation()}
                 style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
               />
+            </label>
+            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
+              <span style={{ fontWeight: 600 }}>Dictionary</span>
+              <select
+                value={newDictionaryId ?? ''}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  if (!nextValue) {
+                    setNewDictionaryId(null);
+                    return;
+                  }
+                  const nextId = Number(nextValue);
+                  setNewDictionaryId(Number.isNaN(nextId) ? null : nextId);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                disabled={dictionaryList.length === 0 || isDictionaryLoading}
+                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box', WebkitAppearance: 'none', appearance: 'none', opacity: isDictionaryLoading ? 0.7 : 1 }}
+              >
+                {dictionaryList.length === 0 ? (
+                  <option value="">{isDictionaryLoading ? 'Loading…' : 'No dictionaries'}</option>
+                ) : (
+                  dictionaryList.map((dict) => (
+                    <option key={dict.id} value={dict.id}>
+                      {dict.title}
+                    </option>
+                  ))
+                )}
+              </select>
             </label>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', alignContent: 'center' }}>
               {addSuccess && (
@@ -1720,6 +2070,36 @@ export default function Home() {
             <div style={{ padding: '1rem', display: 'grid', gap: '0.25rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Dark theme</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+                  }}
+                  style={toggleButtonStyle(theme === 'dark')}
+                >
+                  {theme === 'dark' ? 'On' : 'Off'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
+                <div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Hide sentence generation</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsSentenceGenerationHidden((prev) => !prev);
+                  }}
+                  style={toggleButtonStyle(isSentenceGenerationHidden)}
+                >
+                  {isSentenceGenerationHidden ? 'On' : 'Off'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
+                <div>
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>History</div>
                 </div>
                 <button
@@ -1733,7 +2113,7 @@ export default function Home() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Reset cache & history</div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Reset cache and history</div>
                 </div>
                 <button
                   type="button"
@@ -1741,6 +2121,7 @@ export default function Home() {
                     try {
                       if (typeof window !== 'undefined') {
                         localStorage.removeItem(LOCAL_STORAGE_KEY);
+                        localStorage.removeItem(LOCAL_STORAGE_DICTIONARY_KEY);
                         localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
                       }
                     } catch (_) {}
@@ -1754,7 +2135,7 @@ export default function Home() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>English level</div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Language level</div>
                 </div>
                 <select
                   value={selectedLevel}
@@ -1765,7 +2146,16 @@ export default function Home() {
                       localStorage.setItem(LOCAL_STORAGE_LEVEL_KEY, level);
                     } catch (_) {}
                   }}
-                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', colorScheme: theme === 'dark' ? 'dark' : 'light' }}
+                  style={{
+                    padding: '0.45rem 0.6rem',
+                    borderRadius: '0.45rem',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.95rem',
+                    WebkitAppearance: 'none',
+                    appearance: 'none',
+                  }}
                 >
                   {['A1','A2','B1','B2','C1','C2'].map((lvl) => (
                     <option key={lvl} value={lvl}>{lvl}</option>
@@ -1780,7 +2170,20 @@ export default function Home() {
                 <select
                   value={selectedTopic}
                   onChange={(e) => setSelectedTopic(e.target.value)}
-                  style={{ padding: '0.4rem 0.6rem', borderRadius: '0.4rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', minWidth: '9rem', colorScheme: theme === 'dark' ? 'dark' : 'light' }}
+                  style={{
+                    padding: '0.45rem 0.6rem',
+                    borderRadius: '0.45rem',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text-primary)',
+                    width: `calc(${Math.max(6, selectedTopicLabel.length)}ch + 1.2rem)`,
+                    maxWidth: '100%',
+                    textAlign: 'center',
+                    textAlignLast: 'center',
+                    fontSize: '0.95rem',
+                    WebkitAppearance: 'none',
+                    appearance: 'none',
+                  }}
                 >
                   {SENTENCE_TOPIC_OPTIONS.map((topic) => (
                     <option key={topic.value} value={topic.value}>
