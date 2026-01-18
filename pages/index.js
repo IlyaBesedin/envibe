@@ -7,6 +7,7 @@ const VOCABULARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/vocabulary';
 const DICTIONARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/dictionary';
 const LOCAL_STORAGE_KEY = 'vocabularyData';
 const LOCAL_STORAGE_DICTIONARY_KEY = 'dictionaryData';
+const LOCAL_STORAGE_SELECTED_DICTIONARY_KEY = 'selectedDictionaryId';
 const LOCAL_STORAGE_HISTORY_KEY = 'vocabularyViewedHistory';
 const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
 const LOCAL_STORAGE_RANDOM_KEY = 'vocabularyRandomOrder';
@@ -113,6 +114,17 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+      if (!raw) return;
+      const parsed = Number(raw);
+      if (Number.isNaN(parsed)) return;
+      setSelectedDictionaryId(parsed);
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-theme', theme);
     }
@@ -192,6 +204,12 @@ export default function Home() {
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState(false);
   const [isAddLoading, setIsAddLoading] = useState(false);
+  const [isAddDictionaryModalOpen, setIsAddDictionaryModalOpen] = useState(false);
+  const [newDictionaryTitle, setNewDictionaryTitle] = useState('');
+  const [newDictionaryLanguage, setNewDictionaryLanguage] = useState('');
+  const [addDictionaryError, setAddDictionaryError] = useState('');
+  const [addDictionarySuccess, setAddDictionarySuccess] = useState(false);
+  const [isAddDictionaryLoading, setIsAddDictionaryLoading] = useState(false);
   const [isSentenceCopied, setIsSentenceCopied] = useState(false);
   const [isSentenceGenerationHidden, setIsSentenceGenerationHidden] = useState(false);
   const [searchOverrideEntry, setSearchOverrideEntry] = useState(null);
@@ -604,6 +622,67 @@ export default function Home() {
     }
   }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
 
+  const addDictionaryToApi = useCallback(async (payload, allowRefresh = true) => {
+    const headers = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    };
+    const currentAccessToken = tokenStore.accessToken || accessToken;
+    if (currentAccessToken) {
+      headers.Authorization = `Bearer ${currentAccessToken}`;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await fetch(DICTIONARY_URL, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.status === 400 && allowRefresh) {
+        if (tokenStore.refreshToken) {
+          try {
+            await refreshAccessToken();
+          } catch (refreshError) {
+            await logoutDueToRefreshFailure();
+            throw refreshError;
+          }
+          return addDictionaryToApi(payload, false);
+        }
+        await logoutDueToRefreshFailure();
+        throw new TokenRefreshError('Refresh token missing for retry');
+      }
+
+      if (!response.ok) {
+        let message = `Request failed with status ${response.status}`;
+        try {
+          const err = await response.json();
+          if (err && (err.message || err.error)) {
+            message = err.message || err.error;
+          }
+        } catch (_) {}
+        throw new Error(message);
+      }
+
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      if (error.name === 'AbortError') {
+        throw new Error('Failed to add dictionary');
+      }
+
+      throw error;
+    }
+  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+
   const openAddModal = useCallback((prefill = '') => {
     const normalized = prefill.trim().slice(0, 50);
     setNewWord(normalized);
@@ -623,6 +702,25 @@ export default function Home() {
     setAddError('');
     setAddSuccess(false);
     setIsAddLoading(false);
+  }, []);
+
+  const openAddDictionaryModal = useCallback(() => {
+    setNewDictionaryTitle('');
+    setNewDictionaryLanguage('');
+    setAddDictionaryError('');
+    setAddDictionarySuccess(false);
+    setIsAddDictionaryLoading(false);
+    setIsAddDictionaryModalOpen(true);
+    setIsMenuOpen(false);
+    setIsSettingsOpen(false);
+    blurSearchInput();
+  }, [blurSearchInput]);
+
+  const closeAddDictionaryModal = useCallback(() => {
+    setIsAddDictionaryModalOpen(false);
+    setAddDictionaryError('');
+    setAddDictionarySuccess(false);
+    setIsAddDictionaryLoading(false);
   }, []);
 
   const handleAddWord = useCallback(async () => {
@@ -659,6 +757,43 @@ export default function Home() {
     }
   }, [newWord, newTranslation, newDictionaryId, addWordToApi, loadVocabulary, accessToken, user]);
 
+  const handleAddDictionary = useCallback(async () => {
+    const title = newDictionaryTitle.trim();
+    const language = newDictionaryLanguage.trim();
+    if (!title) {
+      setAddDictionaryError('Title is required');
+      return;
+    }
+    if (!language) {
+      setAddDictionaryError('Language is required');
+      return;
+    }
+    if (!/^\p{L}+$/u.test(language)) {
+      setAddDictionaryError('Language must contain only letters');
+      return;
+    }
+    const effectiveAccessToken = tokenStore.accessToken || accessToken;
+    if (!user && !effectiveAccessToken) {
+      setAddDictionaryError('Authorization required');
+      return;
+    }
+    try {
+      setAddDictionaryError('');
+      setAddDictionarySuccess(false);
+      setIsAddDictionaryLoading(true);
+      await addDictionaryToApi({ title, lang: language.toLowerCase() });
+      setNewDictionaryTitle('');
+      setNewDictionaryLanguage('');
+      setAddDictionarySuccess(true);
+      await loadDictionary({ skipCache: true });
+      await loadVocabulary({ skipCache: true });
+    } catch (error) {
+      setAddDictionaryError(error instanceof Error ? error.message : 'Failed to add dictionary');
+    } finally {
+      setIsAddDictionaryLoading(false);
+    }
+  }, [newDictionaryTitle, newDictionaryLanguage, addDictionaryToApi, loadDictionary, loadVocabulary, accessToken, user]);
+
   useEffect(() => {
     if (authLoading) return;
     const effectiveAccessToken = tokenStore.accessToken || accessToken;
@@ -686,10 +821,10 @@ export default function Home() {
   }, [authLoading, user, accessToken, loadDictionary]);
 
   useEffect(() => {
-    if (isMenuOpen || isSettingsOpen || isAddModalOpen) {
+    if (isMenuOpen || isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) {
       blurSearchInput();
     }
-  }, [isMenuOpen, isSettingsOpen, isAddModalOpen, blurSearchInput]);
+  }, [isMenuOpen, isSettingsOpen, isAddModalOpen, isAddDictionaryModalOpen, blurSearchInput]);
 
   useEffect(() => {
     if (selectedDictionaryId === null) {
@@ -705,6 +840,17 @@ export default function Home() {
     setRandomHistory([]);
     setRandomHistoryPos(-1);
     setSearchOverrideEntry(null);
+  }, [selectedDictionaryId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (selectedDictionaryId === null) {
+        localStorage.removeItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+        return;
+      }
+      localStorage.setItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY, String(selectedDictionaryId));
+    } catch (_) {}
   }, [selectedDictionaryId]);
 
   useEffect(() => {
@@ -1276,8 +1422,8 @@ export default function Home() {
           gridTemplateColumns: 'auto 1fr auto',
           alignItems: 'center',
           gap: '0.8rem',
-          zIndex: (isSettingsOpen || isAddModalOpen) ? 1 : 12,
-          pointerEvents: (isSettingsOpen || isAddModalOpen) ? 'none' : 'auto',
+          zIndex: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 1 : 12,
+          pointerEvents: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
         }}
       >
         <button
@@ -1323,8 +1469,8 @@ export default function Home() {
             width: '100%', 
             maxWidth: '520px', 
             justifySelf: 'center',
-            pointerEvents: (isSettingsOpen || isAddModalOpen) ? 'none' : 'auto',
-            zIndex: (isSettingsOpen || isAddModalOpen) ? 1 : 10
+            pointerEvents: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
+            zIndex: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 1 : 10
             }}>
           <input
             value={searchTerm}
@@ -1347,7 +1493,7 @@ export default function Home() {
               color: 'var(--text-primary)',
               fontSize: '16px',
               boxSizing: 'border-box',
-              pointerEvents: (isSettingsOpen || isAddModalOpen) ? 'none' : 'auto',
+              pointerEvents: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
             }}
           />
           {searchTerm.trim().length >= 3 && isSearchFocused && (
@@ -1501,19 +1647,6 @@ export default function Home() {
         </div>
         <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.15rem -0.25rem 0', paddingTop: '0.35rem' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Add new word</div>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              openAddModal('');
-            }}
-            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-          >
-            Add
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
           <div style={{ fontWeight: 600 }}>Learning mode</div>
           <button
             type="button"
@@ -1555,6 +1688,19 @@ export default function Home() {
             style={toggleButtonStyle(isRandomOrder)}
           >
             {isRandomOrder ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Add new word</div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              openAddModal('');
+            }}
+            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+          >
+            Add
           </button>
         </div>
         <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.15rem -0.25rem 0', paddingTop: '0.35rem' }} />
@@ -1772,7 +1918,6 @@ export default function Home() {
                         if (navigator?.clipboard?.writeText) {
                           await navigator.clipboard.writeText(generatedSentence);
                           setIsSentenceCopied(true);
-                          setTimeout(() => setIsSentenceCopied(false), 3000);
                         }
                       } catch (_) {}
                     }}
@@ -2035,6 +2180,107 @@ export default function Home() {
         </div>
       )}
 
+      {/* Add dictionary modal */}
+      {isAddDictionaryModalOpen && (
+        <div
+          onClick={closeAddDictionaryModal}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'var(--overlay)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            zIndex: 20,
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add new dictionary"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              width: 'min(480px, 95vw)',
+              borderRadius: '0.6rem',
+              boxShadow: 'var(--shadow-elevated)',
+              padding: '1rem',
+              display: 'grid',
+              gap: '0.75rem',
+            }}
+          >
+            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
+              <span style={{ fontWeight: 600 }}>Title</span>
+              <input
+                maxLength={36}
+                value={newDictionaryTitle}
+                onChange={(e) => setNewDictionaryTitle(e.target.value.slice(0, 36))}
+                placeholder="Enter dictionary title"
+                onKeyDown={(e) => e.stopPropagation()}
+                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
+              <span style={{ fontWeight: 600 }}>Language</span>
+              <input
+                maxLength={16}
+                value={newDictionaryLanguage}
+                onChange={(e) => {
+                  const filtered = e.target.value.replace(/[^\p{L}]/gu, '').slice(0, 16);
+                  setNewDictionaryLanguage(filtered);
+                }}
+                placeholder="Enter language"
+                onKeyDown={(e) => e.stopPropagation()}
+                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
+              />
+            </label>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', alignContent: 'center' }}>
+              {addDictionarySuccess && (
+                <div style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
+                  Dictionary successfully added
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAddDictionary();
+                  }}
+                  disabled={isAddDictionaryLoading}
+                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: isAddDictionaryLoading ? 'default' : 'pointer', WebkitAppearance: 'none', appearance: 'none', opacity: isAddDictionaryLoading ? 0.85 : 1 }}
+                >
+                  {isAddDictionaryLoading ? (
+                    <span className="add-button-dots" aria-live="polite">
+                      <span className="add-button-dot" />
+                      <span className="add-button-dot" />
+                      <span className="add-button-dot" />
+                    </span>
+                  ) : (
+                    'Add'
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeAddDictionaryModal();
+                  }}
+                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            {addDictionaryError && (
+              <div style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addDictionaryError}</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Settings overlay */}
       {isSettingsOpen && (
         <div
@@ -2122,6 +2368,7 @@ export default function Home() {
                       if (typeof window !== 'undefined') {
                         localStorage.removeItem(LOCAL_STORAGE_KEY);
                         localStorage.removeItem(LOCAL_STORAGE_DICTIONARY_KEY);
+                        localStorage.removeItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
                         localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
                       }
                     } catch (_) {}
@@ -2191,6 +2438,19 @@ export default function Home() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
+                <div>
+                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Add new dictionary</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={openAddDictionaryModal}
+                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
+                >
+                  Add
+                </button>
               </div>
             </div>
           </div>
