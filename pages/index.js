@@ -1310,12 +1310,14 @@ export default function Home() {
         >
           <form
             onSubmit={handleEmailPasswordSignIn}
+            data-testid="sign-in-form"
             style={{ width: 'min(380px, 95vw)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '1rem', boxShadow: 'var(--shadow-elevated)', background: 'var(--surface)', color: 'var(--text-primary)' }}
           >
             <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem', textAlign: 'center' }}>Envibe</h1>
           <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
             <span style={{ fontSize: '0.85rem' }}>Email</span>
             <input
+              data-testid="sign-in-email-input"
               type="email"
               required
               value={email}
@@ -1327,6 +1329,7 @@ export default function Home() {
           <span style={{ fontSize: '0.85rem' }}>Password</span>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <input
+                data-testid="sign-in-password-input"
                 type={isPasswordVisible ? 'text' : 'password'}
                 required
                 value={password}
@@ -1356,10 +1359,11 @@ export default function Home() {
             </div>
           </label>
           {authError && (
-            <div style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{authError}</div>
+            <div data-testid="sign-in-error" style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{authError}</div>
           )}
           <button
             type="submit"
+            data-testid="sign-in-submit"
             style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
           >
             Sign In
@@ -1428,6 +1432,7 @@ export default function Home() {
       >
         <button
           type="button"
+          data-testid="menu-toggle"
           aria-label="Toggle menu"
           aria-pressed={isMenuOpen}
           onClick={(event) => {
@@ -1473,6 +1478,7 @@ export default function Home() {
             zIndex: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 1 : 10
             }}>
           <input
+            data-testid="search-input"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
             onClick={(event) => event.stopPropagation()}
@@ -1519,6 +1525,7 @@ export default function Home() {
                   <button
                     key={word}
                     type="button"
+                    data-testid="search-suggestion-item"
                     onMouseDown={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -1540,6 +1547,7 @@ export default function Home() {
               ) : (
                 <button
                   type="button"
+                  data-testid="search-add-plus"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1567,6 +1575,7 @@ export default function Home() {
       {/* Sliding menu */}
       {isMenuOpen && (
         <div
+          data-testid="menu-backdrop"
           onClick={(event) => {
             event.stopPropagation();
             setIsMenuOpen(false);
@@ -1581,6 +1590,7 @@ export default function Home() {
         />
       )}
       <div
+        data-testid="menu-panel"
         onClick={(event) => event.stopPropagation()}
         style={{
           position: 'fixed',
@@ -1602,10 +1612,63 @@ export default function Home() {
           gap: '0.65rem',
         }}
       >
-        <div style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.35rem' }}>Menu</div>
+        <div style={{
+          position: 'absolute',
+          top: 'calc(env(safe-area-inset-top) + 0.75rem)',
+          left: 0,
+          right: 0,
+          height: '26px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '1.05rem',
+          fontWeight: 700,
+          pointerEvents: 'none',
+        }}>Menu</div>
+        <button
+          type="button"
+          data-testid="menu-close"
+          aria-label="Close menu"
+          onClick={() => setIsMenuOpen(false)}
+          style={{
+            position: 'absolute',
+            top: 'calc(env(safe-area-inset-top) + 0.75rem)',
+            left: 'calc(env(safe-area-inset-left) + 0.75rem)',
+            width: '44px',
+            height: '26px',
+            borderRadius: 'none',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            display: 'grid',
+            placeItems: 'center',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+          }}
+        >
+          <span style={{ position: 'relative', width: '18px', height: '18px' }}>
+            {[45, -45].map((deg) => (
+              <span
+                key={deg}
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: 0,
+                  width: '18px',
+                  height: '1px',
+                  borderRadius: '999px',
+                  background: 'var(--text-primary)',
+                  transform: `translateY(-50%) rotate(${deg}deg)`,
+                }}
+              />
+            ))}
+          </span>
+        </button>
+        <div style={{ flexShrink: 0, height: 'calc(26px - 0.3rem)' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
           <div style={{ fontWeight: 600 }}>Dictionary</div>
           <select
+            data-testid="menu-dictionary-select"
             value={selectedDictionaryId ?? ''}
             onChange={(event) => {
               event.stopPropagation();
@@ -1650,6 +1713,7 @@ export default function Home() {
           <div style={{ fontWeight: 600 }}>Learning mode</div>
           <button
             type="button"
+            data-testid="menu-learning-toggle"
             onClick={(event) => {
               event.stopPropagation();
               if (!isLearningAvailable) {
@@ -1677,6 +1741,7 @@ export default function Home() {
           <div style={{ fontWeight: 600 }}>Random order</div>
           <button
             type="button"
+            data-testid="menu-random-toggle"
             onClick={(event) => {
               event.stopPropagation();
               const enabled = !isRandomOrder;
@@ -1694,6 +1759,7 @@ export default function Home() {
           <div style={{ fontWeight: 600 }}>Add new word</div>
           <button
             type="button"
+            data-testid="menu-add-word"
             onClick={(event) => {
               event.stopPropagation();
               openAddModal('');
@@ -1708,6 +1774,7 @@ export default function Home() {
           <div style={{ fontWeight: 600 }}>Settings</div>
           <button
             type="button"
+            data-testid="menu-settings-open"
             onClick={(event) => {
               event.stopPropagation();
               setIsAddModalOpen(false);
@@ -1724,6 +1791,7 @@ export default function Home() {
           <div style={{ fontWeight: 600 }}>Sign out</div>
           <button
             type="button"
+            data-testid="menu-signout"
             onClick={(event) => {
               event.stopPropagation();
               setIsMenuOpen(false);
@@ -1739,6 +1807,7 @@ export default function Home() {
       {/* Left arrow */}
       <button
         type="button"
+        data-testid="nav-previous"
         onClick={(event) => {
           event.stopPropagation();
           handleBack();
@@ -1767,6 +1836,7 @@ export default function Home() {
       {/* Right arrow */}
       <button
         type="button"
+        data-testid="nav-next"
         onClick={(event) => {
           event.stopPropagation();
           handleAdvance();
@@ -1811,7 +1881,7 @@ export default function Home() {
               boxSizing: 'border-box',
             }}
           >
-            <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', color: 'var(--accent-strong)' }}>{displayWord}</h1>
+            <h1 data-testid="word-title" style={{ fontSize: '2rem', marginBottom: '0.5rem', color: 'var(--accent-strong)' }}>{displayWord}</h1>
             <div
               style={{
                 width: '100%',
@@ -1824,6 +1894,7 @@ export default function Home() {
               {isLearningMode && displayedEntry && !isTranslationRevealed ? (
                 <button
                   type="button"
+                  data-testid="learning-show-translation"
                   onClick={(event) => {
                     event.stopPropagation();
                     if (!displayedEntry?.word) return;
@@ -1845,6 +1916,7 @@ export default function Home() {
                 </button>
               ) : (
                 <p
+                  data-testid="word-translation"
                   style={{
                     margin: 0,
                     fontSize: '1.5rem',
@@ -1861,6 +1933,7 @@ export default function Home() {
             {!isSentenceGenerationHidden && (
               <button
                 type="button"
+                data-testid="generate-sentence-button"
                 onClick={handleGenerateSentence}
                 style={{
                   marginTop: '0.75rem',
@@ -1902,7 +1975,7 @@ export default function Home() {
                   gap: '0.35rem',
                 }}
               >
-                <div>{generatedSentence}</div>
+                <div data-testid="generated-sentence-text">{generatedSentence}</div>
                 <div style={{ justifySelf: 'end', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
                   {isSentenceCopied && (
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', opacity: 0.90 }}>
@@ -2005,6 +2078,7 @@ export default function Home() {
           role="dialog"
           aria-modal="true"
           aria-label="History"
+          data-testid="history-modal"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -2015,6 +2089,7 @@ export default function Home() {
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
                   type="button"
+                  data-testid="history-clear"
                   onClick={() => {
                     setViewedHistory([]);
                     try {
@@ -2029,6 +2104,7 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
+                  data-testid="history-close"
                   onClick={() => setIsHistoryOpen(false)}
                   style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-on-accent)', WebkitAppearance: 'none', appearance: 'none' }}
                 >
@@ -2038,11 +2114,11 @@ export default function Home() {
             </div>
             <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
               {filteredViewedHistory.length === 0 ? (
-                <p style={{ padding: '1rem', opacity: 0.7 }}>No viewed words yet.</p>
+                <p data-testid="history-empty" style={{ padding: '1rem', opacity: 0.7 }}>No viewed words yet.</p>
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {filteredViewedHistory.map((item, index) => (
-                    <li key={`${item.id ?? 'noid'}-${index}`} style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+                    <li key={`${item.id ?? 'noid'}-${index}`} data-testid="history-item" style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
                       <div style={{ fontWeight: 600 }}>{item.word}</div>
                       <div style={{ opacity: 0.8 }}>{item.translation}</div>
                     </li>
@@ -2071,6 +2147,7 @@ export default function Home() {
           role="dialog"
           aria-modal="true"
           aria-label="Add new word"
+          data-testid="add-word-modal"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -2088,6 +2165,7 @@ export default function Home() {
             <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
               <span style={{ fontWeight: 600 }}>New word</span>
               <input
+                data-testid="add-word-input"
                 maxLength={50}
                 value={newWord}
                 onChange={(e) => setNewWord(e.target.value.slice(0, 50))}
@@ -2099,6 +2177,7 @@ export default function Home() {
             <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
               <span style={{ fontWeight: 600 }}>Translation</span>
               <input
+                data-testid="add-word-translation-input"
                 maxLength={50}
                 value={newTranslation}
                 onChange={(e) => setNewTranslation(e.target.value.slice(0, 50))}
@@ -2110,6 +2189,7 @@ export default function Home() {
             <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
               <span style={{ fontWeight: 600 }}>Dictionary</span>
               <select
+                data-testid="add-word-dictionary-select"
                 value={newDictionaryId ?? ''}
                 onChange={(e) => {
                   const nextValue = e.target.value;
@@ -2137,13 +2217,14 @@ export default function Home() {
             </label>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', alignContent: 'center' }}>
               {addSuccess && (
-                <div style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
+                <div data-testid="add-word-success" style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
                   Word successfully added
                 </div>
               )}
               <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   type="button"
+                  data-testid="add-word-submit"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleAddWord();
@@ -2163,6 +2244,7 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
+                  data-testid="add-word-close"
                   onClick={(e) => {
                     e.stopPropagation();
                     closeAddModal();
@@ -2174,7 +2256,7 @@ export default function Home() {
               </div>
             </div>
             {addError && (
-              <div style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addError}</div>
+              <div data-testid="add-word-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addError}</div>
             )}
           </div>
         </div>
@@ -2197,6 +2279,7 @@ export default function Home() {
           role="dialog"
           aria-modal="true"
           aria-label="Add new dictionary"
+          data-testid="add-dictionary-modal"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -2214,6 +2297,7 @@ export default function Home() {
             <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
               <span style={{ fontWeight: 600 }}>Title</span>
               <input
+                data-testid="add-dictionary-title-input"
                 maxLength={36}
                 value={newDictionaryTitle}
                 onChange={(e) => setNewDictionaryTitle(e.target.value.slice(0, 36))}
@@ -2225,6 +2309,7 @@ export default function Home() {
             <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
               <span style={{ fontWeight: 600 }}>Language</span>
               <input
+                data-testid="add-dictionary-language-input"
                 maxLength={16}
                 value={newDictionaryLanguage}
                 onChange={(e) => {
@@ -2238,13 +2323,14 @@ export default function Home() {
             </label>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', alignContent: 'center' }}>
               {addDictionarySuccess && (
-                <div style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
+                <div data-testid="add-dictionary-success" style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
                   Dictionary successfully added
                 </div>
               )}
               <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   type="button"
+                  data-testid="add-dictionary-submit"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleAddDictionary();
@@ -2264,6 +2350,7 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
+                  data-testid="add-dictionary-close"
                   onClick={(e) => {
                     e.stopPropagation();
                     closeAddDictionaryModal();
@@ -2275,7 +2362,7 @@ export default function Home() {
               </div>
             </div>
             {addDictionaryError && (
-              <div style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addDictionaryError}</div>
+              <div data-testid="add-dictionary-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addDictionaryError}</div>
             )}
           </div>
         </div>
@@ -2298,6 +2385,7 @@ export default function Home() {
           role="dialog"
           aria-modal="true"
           aria-label="Settings"
+          data-testid="settings-modal"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -2307,6 +2395,7 @@ export default function Home() {
               <strong>Settings</strong>
               <button
                 type="button"
+                data-testid="settings-close"
                 onClick={() => setIsSettingsOpen(false)}
                 style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-on-accent)', WebkitAppearance: 'none', appearance: 'none' }}
               >
@@ -2320,6 +2409,7 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
+                  data-testid="settings-theme-toggle"
                   onClick={(event) => {
                     event.stopPropagation();
                     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
@@ -2335,6 +2425,7 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
+                  data-testid="settings-hide-sentence-toggle"
                   onClick={(event) => {
                     event.stopPropagation();
                     setIsSentenceGenerationHidden((prev) => !prev);
@@ -2350,6 +2441,7 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
+                  data-testid="settings-history-open"
                   onClick={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }}
                   style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
                 >
@@ -2363,6 +2455,7 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
+                  data-testid="settings-reset"
                   onClick={() => {
                     try {
                       if (typeof window !== 'undefined') {
@@ -2385,6 +2478,7 @@ export default function Home() {
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Language level</div>
                 </div>
                 <select
+                  data-testid="settings-language-level-select"
                   value={selectedLevel}
                   onChange={(e) => {
                     const level = e.target.value;
@@ -2415,6 +2509,7 @@ export default function Home() {
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Sentence topic</div>
                 </div>
                 <select
+                  data-testid="settings-topic-select"
                   value={selectedTopic}
                   onChange={(e) => setSelectedTopic(e.target.value)}
                   style={{
@@ -2446,6 +2541,7 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
+                  data-testid="settings-add-dictionary"
                   onClick={openAddDictionaryModal}
                   style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
                 >
