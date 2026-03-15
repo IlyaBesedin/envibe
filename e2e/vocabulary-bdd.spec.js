@@ -617,9 +617,9 @@ test.describe.serial('Automated checks from BDD scenarios', () => {
     await sharedPage.getByTestId(TEST_IDS.addDictionary.close).click();
 
     await openMenu(sharedPage);
-    const options = await sharedPage.getByTestId(TEST_IDS.menu.dictionarySelect)
-      .locator('option').evaluateAll((list) => list.map((o) => o.textContent || ''));
-    expect(options.some((o) => o.includes('Test Dict'))).toBe(true);
+    await expect(
+      sharedPage.getByTestId(TEST_IDS.menu.dictionarySelect).locator('option', { hasText: 'Test Dict' })
+    ).toBeAttached({ timeout: 5_000 });
     await closeMenu(sharedPage);
 
     if (createdDictionaryId && savedTokens?.accessToken) {
