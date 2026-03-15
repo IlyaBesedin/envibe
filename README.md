@@ -81,6 +81,8 @@ envibe/
   - `npm run test:e2e`
 - Run e2e tests in UI mode:
   - `npm run test:e2e:ui`
+- Run selected test in UI mode
+  - `npx playwright test --ui --grep "adding a new dictionary`
 
 **CI**
 - Workflow file: `.github/workflows/e2e-on-main-merge.yml`
