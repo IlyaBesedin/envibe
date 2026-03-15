@@ -73,3 +73,16 @@ envibe/
   - `npm run dev`
 - Open the app:
   - http://localhost:3000
+
+**E2E Testing (Playwright)**
+- Install Playwright browser (once after install):
+  - `npm run playwright:install`
+- Run e2e tests:
+  - `npm run test:e2e`
+- Run e2e tests in UI mode:
+  - `npm run test:e2e:ui`
+
+**CI**
+- Workflow file: `.github/workflows/e2e-on-main-merge.yml`
+- Trigger: after PR is merged into `main`
+- Action: installs dependencies, installs Chromium for Playwright, runs e2e tests.

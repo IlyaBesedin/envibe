@@ -13,8 +13,16 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
+  "devDependencies": {
+    "@playwright/test": "^1.51.1"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:e2e": "npx playwright test",
+    "test:e2e:headed": "npx playwright test --headed",
+    "test:e2e:headless": "npx playwright test --headless",
+    "test:e2e:ui": "npx playwright test --ui",
+    "playwright:install": "npx playwright install --with-deps chromium",
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
