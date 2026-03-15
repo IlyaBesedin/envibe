@@ -1,0 +1,198 @@
+Feature: Envibe vocabulary flow (based on pages/index.js)
+
+Scenario: Authenticated user enters the application
+  Given user is on the sign-in screen and enters valid email and password
+  When submits the Sign In form
+  Then application receives "ok" status from signInWithCredential
+  And saves access/refresh token and user_id to localStorage
+  And loads user data and opens the main dictionary screen
+
+Scenario: Sign-in error is displayed to user
+  Given user is on the sign-in screen
+  When signInWithCredential returns an error or throws an exception
+  Then authorization error text is displayed on the form
+
+Scenario: Tokens are picked up from localStorage on startup
+  Given localStorage contains AccessToken, RefreshToken and AuthUserId (or stackAuthTokens)
+  When page loads
+  Then application restores tokens in state
+  And uses them for API requests even before receiving user object
+
+Scenario: Theme is restored from localStorage
+  Given theme "dark" or "light" is saved in localStorage
+  When application initializes
+  Then selected theme is applied to document.documentElement data-theme
+  And re-saved to localStorage after changes
+
+Scenario: Dictionary and words load from cache before API
+  Given localStorage contains vocabularyData and dictionaryData
+  When initial load executes after authorization
+  Then application first shows data from cache
+  And then updates them with API response
+
+Scenario: 400 error on word load triggers token refresh and retry
+  Given vocabulary API request returned 400 and refresh token exists
+  When fetchVocabularyFromApi is called with allowRefresh=true
+  Then application executes refreshAccessToken
+  And retries vocabulary API request once
+
+Scenario: Logout is performed when refresh fails
+  Given refresh token is missing or refreshAccessToken failed with error
+  When any protected API request gets 400 and requires refresh
+  Then application clears auth/state/history
+  And removes auth keys from localStorage
+  And transitions user to unauthenticated state
+
+Scenario: Word filtering by selected dictionary
+  Given words from multiple dictionaries are loaded
+  When user selects dictionaryId in menu
+  Then entryList contains only entries with matching dict_id
+  And selected dictionaryId is saved to localStorage
+
+Scenario: Empty dictionary shows add word button
+  Given dictionary without words is selected
+  When loading completes without errors
+  Then "dictionary doesn't contain any words" state is displayed
+  And Add word button is available
+
+Scenario: Search suggests words only when query length is 3+ characters
+  Given user enters text in Search
+  When trimmed query length is less than 3
+  Then suggestion list is not displayed
+  When trimmed query length is 3 or more
+  Then up to 5 unique matches by word substring are shown
+
+Scenario: If no search matches, Add + is offered
+  Given search query contains 3+ characters
+  And no matching words exist
+  When user opens search dropdown
+  Then "Add +" action is displayed
+  And selecting it opens add word modal with prefilled value
+
+Scenario: Selecting search suggestion shows found word
+  Given user selected a word from searchSuggestions
+  When handleSelectSuggestion executes
+  Then application exits learning mode
+  And clears searchTerm
+  And sets searchOverrideEntry to display found word
+
+Scenario: Forward navigation in normal mode is cyclic
+  Given random mode is disabled and N words exist
+  When user presses Next or Enter/Space/ArrowRight
+  Then next word in order is opened
+  And after last word transition goes to first
+
+Scenario: Back navigation in normal mode is cyclic
+  Given random mode is disabled and N words exist
+  When user presses Previous or ArrowLeft
+  Then previous word in order is opened
+  And before first word transition goes to last
+
+Scenario: Random mode maintains history of random transitions
+  Given random mode is enabled
+  When user presses Next several times
+  Then transition indexes are saved in randomHistory
+  And Back button navigates through randomHistory without re-randomizing
+
+Scenario: Viewed words are recorded in history without duplicates
+  Given user views words in normal mode
+  When current entry changes
+  Then word is added to viewedHistory once per word
+  And history is saved to localStorage
+
+Scenario: Learning mode is only available when history exists
+  Given viewedHistory is empty
+  When user tries to enable Learning mode
+  Then toggle is blocked
+  And alert is shown about needing to view several words
+
+Scenario: Learning mode hides translation until explicit reveal
+  Given Learning mode is enabled and words exist in learningEntries
+  When new word is displayed
+  Then Show translation button is shown instead of translation
+  When user presses Show translation
+  Then translation becomes visible for current word
+
+Scenario: Adding word validates required fields
+  Given Add new word modal is open
+  When word or translation is missing
+  Then "Both fields are required" error is displayed
+  When dictionary is not selected
+  Then "Dictionary is required" error is displayed
+
+Scenario: Successful word addition updates list
+  Given user filled word, translation and dictionary
+  And is authenticated
+  When addWordToApi request succeeds
+  Then "Word successfully added" message is shown
+  And loadVocabulary is called with skipCache=true
+  And new word appears in current list
+
+Scenario: Word addition timeout returns user-friendly error
+  Given addWordToApi takes longer than 5 seconds
+  When AbortController aborts the request
+  Then user sees "Failed to add word" error
+
+Scenario: Adding dictionary validates title and language
+  Given Add new dictionary modal is open
+  When title is empty
+  Then "Title is required" error is displayed
+  When language is empty
+  Then "Language is required" error is displayed
+  When language contains non-letter characters
+  Then "Language must contain only letters" error is displayed
+
+Scenario: Successful dictionary addition updates dictionaries and words
+  Given user filled valid title and language and is authenticated
+  When addDictionaryToApi request succeeds
+  Then "Dictionary successfully added" message is shown
+  And loadDictionary(skipCache=true) and loadVocabulary(skipCache=true) are called
+
+Scenario: Sentence generation uses current settings
+  Given word is displayed and Generate Sentence button is available
+  When user presses Generate Sentence
+  Then POST /api/generate is executed with word, dict, level, topic fields
+  And on success data.sentence is displayed
+
+Scenario: Sentence generation error is shown as text
+  Given /api/generate API returned non-OK status or exception
+  When user triggers generation
+  Then generatedSentence contains error text
+
+Scenario: Copy generated sentence to clipboard
+  Given generatedSentence is shown on screen
+  When user presses Copy button
+  Then application calls navigator.clipboard.writeText
+  And shows "Copied!" indicator
+
+Scenario: Clear history from History overlay
+  Given History overlay is open and history is not empty
+  When user presses Clear
+  Then viewedHistory is cleared
+  And LOCAL_STORAGE_HISTORY_KEY is removed from localStorage
+
+Scenario: Sign out clears session and data state
+  Given user is authenticated and working in application
+  When user presses Exit in menu
+  Then signOut is called
+  And auth tokens and history are removed from localStorage
+  And allEntries, entryList, dictionaryList, random/learning states are cleared
+
+Scenario: Reset cache and history from Settings
+  Given Settings overlay is open
+  When user presses Reset cache and history
+  Then vocabularyData, dictionaryData, selectedDictionaryId and vocabularyViewedHistory are removed
+  And page reload is executed
+
+Scenario: Language level settings are saved to localStorage
+  Given Settings overlay is open
+  When user changes Language level
+  Then selectedLevel is updated in state
+  And value is saved to LOCAL_STORAGE_LEVEL_KEY
+
+Scenario: Random order toggle is saved to localStorage
+  Given menu is open
+  When user toggles Random order
+  Then isRandomOrder changes
+  And "true" or "false" is written to LOCAL_STORAGE_RANDOM_KEY
+  And randomHistory is reset

@@ -149,3 +149,9 @@ typings/
 
 # Neon Auth Module
 neon-auth-nextjs-template/
+
+# Playwright
+playwright-report/
+test-results/
+playwright/.cache/
+e2e/.auth/
