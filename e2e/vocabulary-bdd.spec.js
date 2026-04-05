@@ -165,6 +165,20 @@ async function openAddWordModalViaSearch(page, seed) {
   await expect(page.getByTestId(TEST_IDS.addWord.modal)).toBeVisible();
 }
 
+async function openTranslateModal(page) {
+  await openMenu(page);
+  await expect(page.getByTestId(TEST_IDS.translate.open)).toBeVisible();
+  await page.getByTestId(TEST_IDS.translate.open).click();
+  await expect(page.getByTestId(TEST_IDS.translate.modal)).toBeVisible();
+}
+
+async function closeTranslateModal(page) {
+  if (await page.getByTestId(TEST_IDS.translate.modal).isVisible().catch(() => false)) {
+    await page.getByTestId(TEST_IDS.translate.close).click();
+    await expect(page.getByTestId(TEST_IDS.translate.modal)).not.toBeVisible();
+  }
+}
+
 async function selectAvailableDictionaryInAddWordDialog(page) {
   const select = page.getByTestId(TEST_IDS.addWord.dictionarySelect);
   const options = await select.locator('option').evaluateAll((list) => list.map((opt) => ({
@@ -190,6 +204,7 @@ test.describe.serial('Automated checks from BDD scenarios', () => {
   let createdWord = 'sloppy';
   let createdWordId = null;
   let createdDictionaryId = null;
+  let createdTranslatedWordId = null;
 
   test.beforeAll(async ({ browser, baseURL }) => {
     test.setTimeout(120_000);
@@ -233,6 +248,9 @@ test.describe.serial('Automated checks from BDD scenarios', () => {
     if (createdWordId && savedTokens?.accessToken) {
       await deleteWordFromApi(savedTokens.accessToken, createdWordId);
     }
+    if (createdTranslatedWordId && savedTokens?.accessToken) {
+      await deleteWordFromApi(savedTokens.accessToken, createdTranslatedWordId);
+    }
     if (createdDictionaryId && savedTokens?.accessToken) {
       await deleteDictionaryFromApi(savedTokens.accessToken, createdDictionaryId);
     }
@@ -262,6 +280,126 @@ test.describe.serial('Automated checks from BDD scenarios', () => {
     expect(options.length).toBeGreaterThan(0);
     await dictionarySelect.selectOption(options[0]);
     await closeMenu(sharedPage);
+  });
+
+  test('Translate option is available in the menu', async () => {
+    await ensureMainScreen(sharedPage);
+    await openMenu(sharedPage);
+    await expect(sharedPage.getByTestId(TEST_IDS.translate.open)).toBeVisible();
+    await closeMenu(sharedPage);
+  });
+
+  test('Word translation succeeds from the Translate modal', async () => {
+    await ensureMainScreen(sharedPage);
+    let capturedBody = null;
+    await sharedPage.route('**/api/translate', async (route) => {
+      capturedBody = JSON.parse(route.request().postData() || '{}');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ translation: 'casa' }),
+      });
+    });
+
+    try {
+      await openTranslateModal(sharedPage);
+
+      const translateButton = sharedPage.getByTestId(TEST_IDS.translate.submit);
+      await expect(translateButton).toBeEnabled();
+      await translateButton.click();
+      await expect(sharedPage.getByTestId(TEST_IDS.translate.error)).toHaveText('Please enter a word or phrase for translation.');
+
+      await typeInto(sharedPage.getByTestId(TEST_IDS.translate.wordInput), 'house');
+      await expect(translateButton).toBeEnabled();
+
+      await translateButton.click();
+
+      await expect(sharedPage.getByTestId(TEST_IDS.translate.resultField)).toHaveValue('Casa');
+      await expect(sharedPage.getByTestId(TEST_IDS.translate.addToDictionary)).toBeEnabled();
+    } finally {
+      await sharedPage.unroute('**/api/translate');
+      await closeTranslateModal(sharedPage);
+    }
+
+    expect(capturedBody?.word).toBe('house');
+    expect(typeof capturedBody?.dict).toBe('string');
+    expect(capturedBody?.dict).toBeTruthy();
+    expect(capturedBody?.targetLanguageCode).toBe('ru');
+  });
+
+  test('Selected translation language from Translate modal is sent to translate API', async () => {
+    await ensureMainScreen(sharedPage);
+
+    let capturedBody = null;
+    await sharedPage.route('**/api/translate', async (route) => {
+      capturedBody = JSON.parse(route.request().postData() || '{}');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ translation: '집' }),
+      });
+    });
+
+    try {
+      await openTranslateModal(sharedPage);
+      await sharedPage.getByTestId(TEST_IDS.translate.languageSelect).selectOption('ko');
+      await typeInto(sharedPage.getByTestId(TEST_IDS.translate.wordInput), 'home');
+      await sharedPage.getByTestId(TEST_IDS.translate.submit).click();
+      await expect(sharedPage.getByTestId(TEST_IDS.translate.resultField)).toHaveValue('집');
+      await sharedPage.getByTestId(TEST_IDS.translate.languageSelect).selectOption('ru');
+    } finally {
+      await sharedPage.unroute('**/api/translate');
+      await closeTranslateModal(sharedPage);
+    }
+
+    expect(capturedBody?.targetLanguageCode).toBe('ko');
+  });
+
+  test('Translated word can be added to dictionary and then removed', async () => {
+    await ensureMainScreen(sharedPage);
+    const sourceWord = randomAutoWord(9);
+    const translatedValue = randomAutoWord(7);
+    const capitalizedTranslation = `${translatedValue.charAt(0).toUpperCase()}${translatedValue.slice(1)}`;
+
+    await sharedPage.route('**/api/translate', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ translation: translatedValue }),
+      });
+    });
+
+    try {
+      await openTranslateModal(sharedPage);
+      await sharedPage.getByTestId(TEST_IDS.translate.addToDictionary).click();
+      await expect(sharedPage.getByTestId(TEST_IDS.translate.error)).toHaveText('Please translate a word or phrase before adding it to dictionary.');
+      await typeInto(sharedPage.getByTestId(TEST_IDS.translate.wordInput), sourceWord);
+      await sharedPage.getByTestId(TEST_IDS.translate.submit).click();
+      await expect(sharedPage.getByTestId(TEST_IDS.translate.resultField)).toHaveValue(capitalizedTranslation);
+
+      const [addResponse] = await Promise.all([
+        sharedPage.waitForResponse((r) => r.url() === VOCABULARY_URL && r.request().method() === 'POST'),
+        sharedPage.getByTestId(TEST_IDS.translate.addToDictionary).click(),
+      ]);
+      const addedData = await addResponse.json().catch(() => []);
+      createdTranslatedWordId = Array.isArray(addedData) && addedData[0]?.id ? addedData[0].id : null;
+      expect(createdTranslatedWordId).toBeTruthy();
+      await expect(sharedPage.getByTestId(TEST_IDS.translate.success)).toHaveText('Word successfully added to dictionary');
+    } finally {
+      await sharedPage.unroute('**/api/translate');
+      await closeTranslateModal(sharedPage);
+      if (createdTranslatedWordId && savedTokens?.accessToken) {
+        await deleteWordFromApi(savedTokens.accessToken, createdTranslatedWordId);
+        createdTranslatedWordId = null;
+      }
+    }
+  });
+
+  test('Translate modal closes by Close button', async () => {
+    await ensureMainScreen(sharedPage);
+    await openTranslateModal(sharedPage);
+    await sharedPage.getByTestId(TEST_IDS.translate.close).click();
+    await expect(sharedPage.getByTestId(TEST_IDS.translate.modal)).not.toBeVisible();
   });
 
   test('Adding a word uses random values with the auto prefix', async () => {
