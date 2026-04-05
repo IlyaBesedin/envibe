@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import Head from 'next/head';
 import { stackClientApp } from '../stack/client';
 import { SENTENCE_TOPIC_OPTIONS } from '../lib/sentenceTopics';
+import { TRANSLATION_LANGUAGE_OPTIONS, DEFAULT_TRANSLATION_LANGUAGE_CODE } from '../lib/translationLanguages';
 
 const VOCABULARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/vocabulary';
 const DICTIONARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/dictionary';
@@ -12,6 +13,8 @@ const LOCAL_STORAGE_HISTORY_KEY = 'vocabularyViewedHistory';
 const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
 const LOCAL_STORAGE_RANDOM_KEY = 'vocabularyRandomOrder';
 const LOCAL_STORAGE_THEME_KEY = 'envibeTheme';
+const LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY = 'translationLanguageCode';
+const WORD_INPUT_MAX_LENGTH = 50;
 const STACK_REFRESH_URL = 'https://api.stack-auth.com/api/v1/auth/sessions/current/refresh';
 const STACK_CLIENT_VERSION = 'js @stackframe/js@2.8.27';
 
@@ -182,6 +185,7 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedLevel, setSelectedLevel] = useState('B2');
   const [selectedTopic, setSelectedTopic] = useState('random');
+  const [selectedTranslationLanguageCode, setSelectedTranslationLanguageCode] = useState(DEFAULT_TRANSLATION_LANGUAGE_CODE);
   const [generatedSentence, setGeneratedSentence] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRandomOrder, setIsRandomOrder] = useState(false);
@@ -204,6 +208,16 @@ export default function Home() {
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState(false);
   const [isAddLoading, setIsAddLoading] = useState(false);
+  const [isTranslateModalOpen, setIsTranslateModalOpen] = useState(false);
+  const [translateWordInput, setTranslateWordInput] = useState('');
+  const [translatedWord, setTranslatedWord] = useState('');
+  const [translatedSourceWord, setTranslatedSourceWord] = useState('');
+  const [translatedDictionaryId, setTranslatedDictionaryId] = useState(null);
+  const [translateError, setTranslateError] = useState('');
+  const [translateSuccess, setTranslateSuccess] = useState('');
+  const [isTranslateLoading, setIsTranslateLoading] = useState(false);
+  const [isAddTranslatedLoading, setIsAddTranslatedLoading] = useState(false);
+  const [isTranslatedWordCopied, setIsTranslatedWordCopied] = useState(false);
   const [isAddDictionaryModalOpen, setIsAddDictionaryModalOpen] = useState(false);
   const [newDictionaryTitle, setNewDictionaryTitle] = useState('');
   const [newDictionaryLanguage, setNewDictionaryLanguage] = useState('');
@@ -684,7 +698,7 @@ export default function Home() {
   }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
 
   const openAddModal = useCallback((prefill = '') => {
-    const normalized = prefill.trim().slice(0, 50);
+    const normalized = prefill.trim().slice(0, WORD_INPUT_MAX_LENGTH);
     setNewWord(normalized);
     setNewTranslation('');
     setNewDictionaryId(selectedDictionaryId);
@@ -702,6 +716,31 @@ export default function Home() {
     setAddError('');
     setAddSuccess(false);
     setIsAddLoading(false);
+  }, []);
+
+  const openTranslateModal = useCallback(() => {
+    setTranslateWordInput('');
+    setTranslatedWord('');
+    setTranslatedSourceWord('');
+    setTranslatedDictionaryId(null);
+    setTranslateError('');
+    setTranslateSuccess('');
+    setIsTranslateLoading(false);
+    setIsAddTranslatedLoading(false);
+    setIsTranslatedWordCopied(false);
+    setIsTranslateModalOpen(true);
+    setIsMenuOpen(false);
+    setIsSettingsOpen(false);
+    blurSearchInput();
+  }, [blurSearchInput]);
+
+  const closeTranslateModal = useCallback(() => {
+    setIsTranslateModalOpen(false);
+    setTranslateError('');
+    setTranslateSuccess('');
+    setIsTranslateLoading(false);
+    setIsAddTranslatedLoading(false);
+    setIsTranslatedWordCopied(false);
   }, []);
 
   const openAddDictionaryModal = useCallback(() => {
@@ -756,6 +795,108 @@ export default function Home() {
       setIsAddLoading(false);
     }
   }, [newWord, newTranslation, newDictionaryId, addWordToApi, loadVocabulary, accessToken, user]);
+
+  const handleTranslateWord = useCallback(async () => {
+    const key = translateWordInput.trim();
+    const activeDictionary = dictionaryList.find((item) => item.id === selectedDictionaryId) || null;
+    const dict = `${activeDictionary?.title || 'Unnamed dictionary'} (${activeDictionary?.lang || 'unknown source language'})`;
+    const targetLanguageCode = selectedTranslationLanguageCode.trim();
+
+    if (!key) {
+      setTranslateError('Please enter a word or phrase for translation.');
+      setTranslateSuccess('');
+      return;
+    }
+
+    if (!selectedDictionaryId || !dict) {
+      setTranslateError('Active dictionary is required');
+      return;
+    }
+    if (!targetLanguageCode) {
+      setTranslateError('Language is required');
+      return;
+    }
+
+    try {
+      setTranslateError('');
+      setTranslateSuccess('');
+      setIsTranslateLoading(true);
+      const response = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: key,
+          dict,
+          targetLanguageCode,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `Failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const rawResult = typeof data?.translation === 'string' ? data.translation.trim() : '';
+      if (!rawResult) {
+        throw new Error('Translation result is empty');
+      }
+      const resultChars = Array.from(rawResult);
+      resultChars[0] = resultChars[0].toLocaleUpperCase();
+      const result = resultChars.join('');
+
+      setTranslatedWord(result);
+      setTranslatedSourceWord(key);
+      setTranslatedDictionaryId(selectedDictionaryId);
+      setTranslateSuccess('');
+      setIsTranslatedWordCopied(false);
+    } catch (error) {
+      setTranslatedWord('');
+      setTranslatedSourceWord('');
+      setTranslatedDictionaryId(null);
+      setTranslateError(error instanceof Error ? error.message : 'Failed to translate word');
+    } finally {
+      setIsTranslateLoading(false);
+    }
+  }, [translateWordInput, dictionaryList, selectedDictionaryId, selectedTranslationLanguageCode]);
+
+  const handleAddTranslatedWord = useCallback(async () => {
+    const key = translatedSourceWord.trim();
+    const translate = translatedWord.trim();
+    if (!key || !translate || !translatedDictionaryId) {
+      setTranslateError('Please translate a word or phrase before adding it to dictionary.');
+      setTranslateSuccess('');
+      return;
+    }
+
+    const effectiveAccessToken = tokenStore.accessToken || accessToken;
+    if (!user && !effectiveAccessToken) {
+      setTranslateError('Authorization required');
+      return;
+    }
+
+    try {
+      setTranslateError('');
+      setTranslateSuccess('');
+      setIsTranslateLoading(false);
+      setIsAddTranslatedLoading(true);
+      await addWordToApi({ key, translate, dict_id: translatedDictionaryId });
+      setTranslateSuccess('Word successfully added to dictionary');
+      await loadVocabulary({ skipCache: true });
+    } catch (error) {
+      setTranslateError(error instanceof Error ? error.message : 'Failed to add word');
+    } finally {
+      setIsAddTranslatedLoading(false);
+    }
+  }, [
+    translatedSourceWord,
+    translatedWord,
+    translatedDictionaryId,
+    accessToken,
+    user,
+    addWordToApi,
+    loadVocabulary,
+  ]);
 
   const handleAddDictionary = useCallback(async () => {
     const title = newDictionaryTitle.trim();
@@ -821,10 +962,10 @@ export default function Home() {
   }, [authLoading, user, accessToken, loadDictionary]);
 
   useEffect(() => {
-    if (isMenuOpen || isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) {
+    if (isMenuOpen || isSettingsOpen || isAddModalOpen || isTranslateModalOpen || isAddDictionaryModalOpen) {
       blurSearchInput();
     }
-  }, [isMenuOpen, isSettingsOpen, isAddModalOpen, isAddDictionaryModalOpen, blurSearchInput]);
+  }, [isMenuOpen, isSettingsOpen, isAddModalOpen, isTranslateModalOpen, isAddDictionaryModalOpen, blurSearchInput]);
 
   useEffect(() => {
     if (selectedDictionaryId === null) {
@@ -877,6 +1018,10 @@ export default function Home() {
       if (savedLevel) setSelectedLevel(savedLevel);
       const savedRandom = localStorage.getItem(LOCAL_STORAGE_RANDOM_KEY);
       if (savedRandom === 'true') setIsRandomOrder(true);
+      const savedTranslationLanguageCode = localStorage.getItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
+      if (savedTranslationLanguageCode && TRANSLATION_LANGUAGE_OPTIONS.some((lang) => lang.code === savedTranslationLanguageCode)) {
+        setSelectedTranslationLanguageCode(savedTranslationLanguageCode);
+      }
     } catch (_) {
       // ignore malformed
     } finally {
@@ -1164,6 +1309,16 @@ export default function Home() {
       setRevealedTranslations({});
       setSearchOverrideEntry(null);
       setNewDictionaryId(null);
+      setIsTranslateModalOpen(false);
+      setTranslateWordInput('');
+      setTranslatedWord('');
+      setTranslatedSourceWord('');
+      setTranslatedDictionaryId(null);
+      setTranslateError('');
+      setTranslateSuccess('');
+      setIsTranslateLoading(false);
+      setIsAddTranslatedLoading(false);
+      setIsTranslatedWordCopied(false);
       setSelectedTopic('random');
     } catch (_) {}
   }, [user]);
@@ -1177,6 +1332,10 @@ export default function Home() {
     const match = SENTENCE_TOPIC_OPTIONS.find((topic) => topic.value === selectedTopic);
     return match?.label ? String(match.label) : String(selectedTopic || '');
   }, [selectedTopic]);
+  const selectedTranslationLanguageLabel = useMemo(() => {
+    const match = TRANSLATION_LANGUAGE_OPTIONS.find((lang) => lang.code === selectedTranslationLanguageCode);
+    return match?.label ? String(match.label) : '';
+  }, [selectedTranslationLanguageCode]);
 
   const activeEntries = isLearningMode ? learningEntries : entryList;
   const activeIndex = isLearningMode ? learningIndex : currentIndex;
@@ -1193,6 +1352,8 @@ export default function Home() {
     && !displayedEntry
     && selectedDictionaryId !== null
     && entryList.length === 0;
+  const isTranslateActionDisabled = isTranslateLoading;
+  const isAddTranslatedDisabled = isTranslateLoading || isAddTranslatedLoading;
 
   useEffect(() => {
     if (isLearningMode && !isLearningAvailable) {
@@ -1426,8 +1587,8 @@ export default function Home() {
           gridTemplateColumns: 'auto 1fr auto',
           alignItems: 'center',
           gap: '0.8rem',
-          zIndex: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 1 : 12,
-          pointerEvents: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
+          zIndex: (isSettingsOpen || isAddModalOpen || isTranslateModalOpen || isAddDictionaryModalOpen) ? 1 : 12,
+          pointerEvents: (isSettingsOpen || isAddModalOpen || isTranslateModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
         }}
       >
         <button
@@ -1474,8 +1635,8 @@ export default function Home() {
             width: '100%', 
             maxWidth: '520px', 
             justifySelf: 'center',
-            pointerEvents: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
-            zIndex: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 1 : 10
+            pointerEvents: (isSettingsOpen || isAddModalOpen || isTranslateModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
+            zIndex: (isSettingsOpen || isAddModalOpen || isTranslateModalOpen || isAddDictionaryModalOpen) ? 1 : 10
             }}>
           <input
             data-testid="search-input"
@@ -1499,7 +1660,7 @@ export default function Home() {
               color: 'var(--text-primary)',
               fontSize: '16px',
               boxSizing: 'border-box',
-              pointerEvents: (isSettingsOpen || isAddModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
+              pointerEvents: (isSettingsOpen || isAddModalOpen || isTranslateModalOpen || isAddDictionaryModalOpen) ? 'none' : 'auto',
             }}
           />
           {searchTerm.trim().length >= 3 && isSearchFocused && (
@@ -1767,6 +1928,20 @@ export default function Home() {
             style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
           >
             Add
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ fontWeight: 600 }}>Translate text</div>
+          <button
+            type="button"
+            data-testid="menu-translate-open"
+            onClick={(event) => {
+              event.stopPropagation();
+              openTranslateModal();
+            }}
+            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+          >
+            Open
           </button>
         </div>
         <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.15rem -0.25rem 0', paddingTop: '0.35rem' }} />
@@ -2166,9 +2341,9 @@ export default function Home() {
               <span style={{ fontWeight: 600 }}>New word</span>
               <input
                 data-testid="add-word-input"
-                maxLength={50}
+                maxLength={WORD_INPUT_MAX_LENGTH}
                 value={newWord}
-                onChange={(e) => setNewWord(e.target.value.slice(0, 50))}
+                onChange={(e) => setNewWord(e.target.value.slice(0, WORD_INPUT_MAX_LENGTH))}
                 placeholder="Enter a new word"
                 onKeyDown={(e) => e.stopPropagation()}
                 style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
@@ -2178,9 +2353,9 @@ export default function Home() {
               <span style={{ fontWeight: 600 }}>Translation</span>
               <input
                 data-testid="add-word-translation-input"
-                maxLength={50}
+                maxLength={WORD_INPUT_MAX_LENGTH}
                 value={newTranslation}
-                onChange={(e) => setNewTranslation(e.target.value.slice(0, 50))}
+                onChange={(e) => setNewTranslation(e.target.value.slice(0, WORD_INPUT_MAX_LENGTH))}
                 placeholder="Enter translation"
                 onKeyDown={(e) => e.stopPropagation()}
                 style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
@@ -2257,6 +2432,251 @@ export default function Home() {
             </div>
             {addError && (
               <div data-testid="add-word-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addError}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Translate modal */}
+      {isTranslateModalOpen && (
+        <div
+          onClick={closeTranslateModal}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'var(--overlay)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            zIndex: 20,
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Translate word"
+          data-testid="translate-modal"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              width: 'min(480px, 95vw)',
+              borderRadius: '0.6rem',
+              boxShadow: 'var(--shadow-elevated)',
+              padding: '1rem',
+              display: 'grid',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
+              <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left', width: '100%' }}>
+                <select
+                  data-testid="translate-language-select"
+                  value={selectedTranslationLanguageCode}
+                  onChange={(e) => {
+                    const code = e.target.value;
+                    setSelectedTranslationLanguageCode(code);
+                    try {
+                      localStorage.setItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY, code);
+                    } catch (_) {}
+                  }}
+                  style={{
+                    padding: '0.45rem 0.6rem',
+                    borderRadius: '0.45rem',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text-primary)',
+                    width: `calc(${Math.max(6, selectedTranslationLanguageLabel.length)}ch + 1.2rem)`,
+                    maxWidth: '100%',
+                    textAlign: 'center',
+                    textAlignLast: 'center',
+                    fontSize: '0.95rem',
+                    WebkitAppearance: 'none',
+                    appearance: 'none',
+                  }}
+                >
+                  {TRANSLATION_LANGUAGE_OPTIONS.map((lang) => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                data-testid="translate-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeTranslateModal();
+                }}
+                style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', flexShrink: 0, WebkitAppearance: 'none', appearance: 'none' }}
+              >
+                Close
+              </button>
+            </div>
+            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
+              <span style={{ fontWeight: 600 }}>Word or phrase</span>
+              <input
+                data-testid="translate-word-input"
+                maxLength={WORD_INPUT_MAX_LENGTH}
+                value={translateWordInput}
+                onChange={(e) => {
+                  setTranslateWordInput(e.target.value.slice(0, WORD_INPUT_MAX_LENGTH));
+                  setTranslatedWord('');
+                  setTranslatedSourceWord('');
+                  setTranslatedDictionaryId(null);
+                  setTranslateError('');
+                  setTranslateSuccess('');
+                  setIsTranslatedWordCopied(false);
+                }}
+                placeholder="Enter word or phrase"
+                onKeyDown={(e) => e.stopPropagation()}
+                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
+              <span style={{ fontWeight: 600 }}>Translation</span>
+              <div style={{ position: 'relative' }}>
+                <textarea
+                  data-testid="translate-result-field"
+                  readOnly
+                  value={translatedWord}
+                  placeholder="Translation result"
+                  onKeyDown={(e) => e.stopPropagation()}
+                  style={{
+                    width: '100%',
+                    minHeight: '84px',
+                    resize: 'none',
+                    padding: '0.55rem 2.7rem 0.55rem 0.65rem',
+                    borderRadius: '0.45rem',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text-primary)',
+                    fontSize: '16px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ position: 'absolute', right: '0.45rem', bottom: '0.45rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  {isTranslatedWordCopied && (
+                    <span style={{ fontSize: '0.8rem', opacity: 0.85 }}>Copied!</span>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="translate-copy"
+                    onClick={async (event) => {
+                      event.stopPropagation();
+                      if (!translatedWord.trim()) return;
+                      try {
+                        if (navigator?.clipboard?.writeText) {
+                          await navigator.clipboard.writeText(translatedWord);
+                          setIsTranslatedWordCopied(true);
+                        }
+                      } catch (_) {}
+                    }}
+                    disabled={!translatedWord.trim()}
+                    aria-label="Copy translated word"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '0.2rem',
+                      border: 'none',
+                      borderRadius: '0.4rem',
+                      background: 'transparent',
+                      color: 'var(--text-primary)',
+                      cursor: translatedWord.trim() ? 'pointer' : 'default',
+                      opacity: translatedWord.trim() ? 1 : 0.55,
+                      WebkitAppearance: 'none',
+                      appearance: 'none',
+                    }}
+                  >
+                    <svg
+                      enableBackground="new 0 0 24 24"
+                      focusable="false"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      width="18"
+                      aria-hidden="true"
+                      style={{ opacity: 0.9 }}
+                    >
+                      <g>
+                        <rect fill="none" height="24" width="24" />
+                      </g>
+                      <g>
+                        <path fill="currentColor" d="M16,20H5V6H3v14c0,1.1,0.9,2,2,2h11V20z M20,16V4c0-1.1-0.9-2-2-2H9C7.9,2,7,2.9,7,4v12c0,1.1,0.9,2,2,2h9 C19.1,18,20,17.1,20,16z M18,16H9V4h9V16z" />
+                      </g>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+              <button
+                type="button"
+                data-testid="translate-submit"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleTranslateWord();
+                }}
+                disabled={isTranslateActionDisabled}
+                style={{
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: '0.45rem',
+                  border: '1px solid var(--accent-strong)',
+                  background: 'var(--accent-strong)',
+                  color: 'var(--text-on-accent)',
+                  cursor: isTranslateActionDisabled ? 'default' : 'pointer',
+                  WebkitAppearance: 'none',
+                  appearance: 'none',
+                  opacity: isTranslateActionDisabled ? 0.7 : 1,
+                }}
+              >
+                {isTranslateLoading ? (
+                  <span className="add-button-dots" aria-live="polite">
+                    <span className="add-button-dot" />
+                    <span className="add-button-dot" />
+                    <span className="add-button-dot" />
+                  </span>
+                ) : (
+                  'Translate'
+                )}
+              </button>
+              <button
+                type="button"
+                data-testid="translate-add-to-dictionary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAddTranslatedWord();
+                }}
+                disabled={isAddTranslatedDisabled}
+                style={{
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: '0.45rem',
+                  border: '1px solid var(--accent-strong)',
+                  background: 'var(--accent-strong)',
+                  color: 'var(--text-on-accent)',
+                  cursor: isAddTranslatedDisabled ? 'default' : 'pointer',
+                  WebkitAppearance: 'none',
+                  appearance: 'none',
+                  opacity: isAddTranslatedDisabled ? 0.7 : 1,
+                }}
+              >
+                {isAddTranslatedLoading ? (
+                  <span className="add-button-dots" aria-live="polite">
+                    <span className="add-button-dot" />
+                    <span className="add-button-dot" />
+                    <span className="add-button-dot" />
+                  </span>
+                ) : (
+                  'Add to Dictionary'
+                )}
+              </button>
+            </div>
+            {translateSuccess && (
+              <div data-testid="translate-success" style={{ color: 'var(--accent-strong)', textAlign: 'left', fontSize: '0.9rem' }}>{translateSuccess}</div>
+            )}
+            {translateError && (
+              <div data-testid="translate-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{translateError}</div>
             )}
           </div>
         </div>
@@ -2397,7 +2817,7 @@ export default function Home() {
                 type="button"
                 data-testid="settings-close"
                 onClick={() => setIsSettingsOpen(false)}
-                style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-on-accent)', WebkitAppearance: 'none', appearance: 'none' }}
+                style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
               >
                 Close
               </button>
@@ -2463,6 +2883,7 @@ export default function Home() {
                         localStorage.removeItem(LOCAL_STORAGE_DICTIONARY_KEY);
                         localStorage.removeItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
                         localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
+                        localStorage.removeItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
                       }
                     } catch (_) {}
                     window.location.reload();
@@ -2534,7 +2955,6 @@ export default function Home() {
                   ))}
                 </select>
               </div>
-
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
                 <div>
                   <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Add new dictionary</div>
