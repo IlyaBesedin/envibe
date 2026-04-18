@@ -37,6 +37,7 @@ export const TEST_IDS = {
   sentence: {
     generateButton: 'generate-sentence-button',
     text: 'generated-sentence-text',
+    error: 'generated-sentence-error',
   },
   addWord: {
     modal: 'add-word-modal',

@@ -2276,7 +2276,11 @@ export default function Home() {
                 }}
               >
                 {generatedSentenceError ? (
-                  <RequestErrorMessage message={generatedSentenceError} style={{ textAlign: 'center' }} />
+                  <RequestErrorMessage
+                    data-testid="generated-sentence-error"
+                    message={generatedSentenceError}
+                    style={{ textAlign: 'center' }}
+                  />
                 ) : (
                   <>
                     <div data-testid="generated-sentence-text">{generatedSentence}</div>
