@@ -57,6 +57,94 @@ function pickFirstString(...values) {
   return '';
 }
 
+function getErrorMessage(error, fallback = 'Unknown error') {
+  return error instanceof Error ? error.message : fallback;
+}
+
+async function readApiErrorMessage(response, fallback) {
+  const rawText = await response.text().catch(() => '');
+  if (!rawText) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(rawText);
+    return pickFirstString(parsed?.message, parsed?.error, parsed?.details, parsed?.hint)
+      || JSON.stringify(parsed);
+  } catch (_) {
+    return rawText;
+  }
+}
+
+async function copyTextToClipboard(text) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === 'undefined') return;
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function RequestErrorMessage({ message, style, ...props }) {
+  const handleCopy = useCallback(async (event) => {
+    event.stopPropagation();
+    if (!message) return;
+
+    try {
+      await copyTextToClipboard(message);
+    } catch (_) {}
+  }, [message]);
+
+  return (
+    <div
+      {...props}
+      style={{
+        color: 'var(--danger)',
+        textAlign: 'left',
+        fontSize: '0.9rem',
+        lineHeight: 1.45,
+        ...style,
+      }}
+    >
+      <div style={{ fontWeight: 600 }}>Something went wrong</div>
+      <div>
+        <span>You may </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          style={{
+            padding: 0,
+            border: 'none',
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            font: 'inherit',
+            textDecoration: 'underline',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+          }}
+        >
+          copy error message
+        </button>
+        <span> or try later</span>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   // Auth state
   const [user, setUser] = useState(null);
@@ -187,6 +275,7 @@ export default function Home() {
   const [selectedTopic, setSelectedTopic] = useState('random');
   const [selectedTranslationLanguageCode, setSelectedTranslationLanguageCode] = useState(DEFAULT_TRANSLATION_LANGUAGE_CODE);
   const [generatedSentence, setGeneratedSentence] = useState('');
+  const [generatedSentenceError, setGeneratedSentenceError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRandomOrder, setIsRandomOrder] = useState(false);
   const [orderIndices, setOrderIndices] = useState([]);
@@ -206,6 +295,7 @@ export default function Home() {
   const [newTranslation, setNewTranslation] = useState('');
   const [newDictionaryId, setNewDictionaryId] = useState(null);
   const [addError, setAddError] = useState('');
+  const [isAddRequestError, setIsAddRequestError] = useState(false);
   const [addSuccess, setAddSuccess] = useState(false);
   const [isAddLoading, setIsAddLoading] = useState(false);
   const [isTranslateModalOpen, setIsTranslateModalOpen] = useState(false);
@@ -214,6 +304,7 @@ export default function Home() {
   const [translatedSourceWord, setTranslatedSourceWord] = useState('');
   const [translatedDictionaryId, setTranslatedDictionaryId] = useState(null);
   const [translateError, setTranslateError] = useState('');
+  const [isTranslateRequestError, setIsTranslateRequestError] = useState(false);
   const [translateSuccess, setTranslateSuccess] = useState('');
   const [isTranslateLoading, setIsTranslateLoading] = useState(false);
   const [isAddTranslatedLoading, setIsAddTranslatedLoading] = useState(false);
@@ -222,6 +313,7 @@ export default function Home() {
   const [newDictionaryTitle, setNewDictionaryTitle] = useState('');
   const [newDictionaryLanguage, setNewDictionaryLanguage] = useState('');
   const [addDictionaryError, setAddDictionaryError] = useState('');
+  const [isAddDictionaryRequestError, setIsAddDictionaryRequestError] = useState(false);
   const [addDictionarySuccess, setAddDictionarySuccess] = useState(false);
   const [isAddDictionaryLoading, setIsAddDictionaryLoading] = useState(false);
   const [isSentenceCopied, setIsSentenceCopied] = useState(false);
@@ -446,7 +538,7 @@ export default function Home() {
     }
 
     if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
+      throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
     }
 
     return response.json();
@@ -476,7 +568,7 @@ export default function Home() {
     }
 
     if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
+      throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
     }
 
     return response.json();
@@ -612,14 +704,7 @@ export default function Home() {
       }
 
       if (!response.ok) {
-        let message = `Request failed with status ${response.status}`;
-        try {
-          const err = await response.json();
-          if (err && (err.message || err.error)) {
-            message = err.message || err.error;
-          }
-        } catch (_) {}
-        throw new Error(message);
+        throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
       }
 
       return response.json();
@@ -675,14 +760,7 @@ export default function Home() {
       }
 
       if (!response.ok) {
-        let message = `Request failed with status ${response.status}`;
-        try {
-          const err = await response.json();
-          if (err && (err.message || err.error)) {
-            message = err.message || err.error;
-          }
-        } catch (_) {}
-        throw new Error(message);
+        throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
       }
 
       return response.json();
@@ -703,6 +781,7 @@ export default function Home() {
     setNewTranslation('');
     setNewDictionaryId(selectedDictionaryId);
     setAddError('');
+    setIsAddRequestError(false);
     setAddSuccess(false);
     setIsAddLoading(false);
     setIsAddModalOpen(true);
@@ -714,6 +793,7 @@ export default function Home() {
   const closeAddModal = useCallback(() => {
     setIsAddModalOpen(false);
     setAddError('');
+    setIsAddRequestError(false);
     setAddSuccess(false);
     setIsAddLoading(false);
   }, []);
@@ -724,6 +804,7 @@ export default function Home() {
     setTranslatedSourceWord('');
     setTranslatedDictionaryId(null);
     setTranslateError('');
+    setIsTranslateRequestError(false);
     setTranslateSuccess('');
     setIsTranslateLoading(false);
     setIsAddTranslatedLoading(false);
@@ -737,6 +818,7 @@ export default function Home() {
   const closeTranslateModal = useCallback(() => {
     setIsTranslateModalOpen(false);
     setTranslateError('');
+    setIsTranslateRequestError(false);
     setTranslateSuccess('');
     setIsTranslateLoading(false);
     setIsAddTranslatedLoading(false);
@@ -747,6 +829,7 @@ export default function Home() {
     setNewDictionaryTitle('');
     setNewDictionaryLanguage('');
     setAddDictionaryError('');
+    setIsAddDictionaryRequestError(false);
     setAddDictionarySuccess(false);
     setIsAddDictionaryLoading(false);
     setIsAddDictionaryModalOpen(true);
@@ -758,6 +841,7 @@ export default function Home() {
   const closeAddDictionaryModal = useCallback(() => {
     setIsAddDictionaryModalOpen(false);
     setAddDictionaryError('');
+    setIsAddDictionaryRequestError(false);
     setAddDictionarySuccess(false);
     setIsAddDictionaryLoading(false);
   }, []);
@@ -767,19 +851,23 @@ export default function Home() {
     const translate = newTranslation.trim();
     if (!key || !translate) {
       setAddError('Both fields are required');
+      setIsAddRequestError(false);
       return;
     }
     if (!newDictionaryId) {
       setAddError('Dictionary is required');
+      setIsAddRequestError(false);
       return;
     }
     const effectiveAccessToken = tokenStore.accessToken || accessToken;
     if (!user && !effectiveAccessToken) {
       setAddError('Authorization required');
+      setIsAddRequestError(false);
       return;
     }
     try {
       setAddError('');
+      setIsAddRequestError(false);
       setAddSuccess(false);
       setIsAddLoading(true);
       await addWordToApi({ key, translate, dict_id: newDictionaryId });
@@ -790,7 +878,8 @@ export default function Home() {
       setAddSuccess(true);
       await loadVocabulary({ skipCache: true });
     } catch (error) {
-      setAddError(error instanceof Error ? error.message : 'Failed to add word');
+      setAddError(getErrorMessage(error, 'Failed to add word'));
+      setIsAddRequestError(true);
     } finally {
       setIsAddLoading(false);
     }
@@ -804,21 +893,25 @@ export default function Home() {
 
     if (!key) {
       setTranslateError('Please enter a word or phrase for translation.');
+      setIsTranslateRequestError(false);
       setTranslateSuccess('');
       return;
     }
 
     if (!selectedDictionaryId || !dict) {
       setTranslateError('Active dictionary is required');
+      setIsTranslateRequestError(false);
       return;
     }
     if (!targetLanguageCode) {
       setTranslateError('Language is required');
+      setIsTranslateRequestError(false);
       return;
     }
 
     try {
       setTranslateError('');
+      setIsTranslateRequestError(false);
       setTranslateSuccess('');
       setIsTranslateLoading(true);
       const response = await fetch('/api/translate', {
@@ -832,8 +925,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || `Failed with status ${response.status}`);
+        throw new Error(await readApiErrorMessage(response, `Failed with status ${response.status}`));
       }
 
       const data = await response.json();
@@ -854,7 +946,8 @@ export default function Home() {
       setTranslatedWord('');
       setTranslatedSourceWord('');
       setTranslatedDictionaryId(null);
-      setTranslateError(error instanceof Error ? error.message : 'Failed to translate word');
+      setTranslateError(getErrorMessage(error, 'Failed to translate word'));
+      setIsTranslateRequestError(true);
     } finally {
       setIsTranslateLoading(false);
     }
@@ -865,6 +958,7 @@ export default function Home() {
     const translate = translatedWord.trim();
     if (!key || !translate || !translatedDictionaryId) {
       setTranslateError('Please translate a word or phrase before adding it to dictionary.');
+      setIsTranslateRequestError(false);
       setTranslateSuccess('');
       return;
     }
@@ -872,11 +966,13 @@ export default function Home() {
     const effectiveAccessToken = tokenStore.accessToken || accessToken;
     if (!user && !effectiveAccessToken) {
       setTranslateError('Authorization required');
+      setIsTranslateRequestError(false);
       return;
     }
 
     try {
       setTranslateError('');
+      setIsTranslateRequestError(false);
       setTranslateSuccess('');
       setIsTranslateLoading(false);
       setIsAddTranslatedLoading(true);
@@ -884,7 +980,8 @@ export default function Home() {
       setTranslateSuccess('Word successfully added to dictionary');
       await loadVocabulary({ skipCache: true });
     } catch (error) {
-      setTranslateError(error instanceof Error ? error.message : 'Failed to add word');
+      setTranslateError(getErrorMessage(error, 'Failed to add word'));
+      setIsTranslateRequestError(true);
     } finally {
       setIsAddTranslatedLoading(false);
     }
@@ -903,23 +1000,28 @@ export default function Home() {
     const language = newDictionaryLanguage.trim();
     if (!title) {
       setAddDictionaryError('Title is required');
+      setIsAddDictionaryRequestError(false);
       return;
     }
     if (!language) {
       setAddDictionaryError('Language is required');
+      setIsAddDictionaryRequestError(false);
       return;
     }
     if (!/^\p{L}+$/u.test(language)) {
       setAddDictionaryError('Language must contain only letters');
+      setIsAddDictionaryRequestError(false);
       return;
     }
     const effectiveAccessToken = tokenStore.accessToken || accessToken;
     if (!user && !effectiveAccessToken) {
       setAddDictionaryError('Authorization required');
+      setIsAddDictionaryRequestError(false);
       return;
     }
     try {
       setAddDictionaryError('');
+      setIsAddDictionaryRequestError(false);
       setAddDictionarySuccess(false);
       setIsAddDictionaryLoading(true);
       await addDictionaryToApi({ title, lang: language.toLowerCase() });
@@ -929,7 +1031,8 @@ export default function Home() {
       await loadDictionary({ skipCache: true });
       await loadVocabulary({ skipCache: true });
     } catch (error) {
-      setAddDictionaryError(error instanceof Error ? error.message : 'Failed to add dictionary');
+      setAddDictionaryError(getErrorMessage(error, 'Failed to add dictionary'));
+      setIsAddDictionaryRequestError(true);
     } finally {
       setIsAddDictionaryLoading(false);
     }
@@ -1189,6 +1292,7 @@ export default function Home() {
   // Clear generated sentence when navigating to a different word
   useEffect(() => {
     setGeneratedSentence('');
+    setGeneratedSentenceError('');
     setIsGenerating(false);
     setIsSentenceCopied(false);
   }, [currentIndex, learningIndex, isLearningMode]);
@@ -1315,6 +1419,7 @@ export default function Home() {
       setTranslatedSourceWord('');
       setTranslatedDictionaryId(null);
       setTranslateError('');
+      setIsTranslateRequestError(false);
       setTranslateSuccess('');
       setIsTranslateLoading(false);
       setIsAddTranslatedLoading(false);
@@ -1367,6 +1472,7 @@ export default function Home() {
     try {
       setIsGenerating(true);
       setGeneratedSentence('');
+      setGeneratedSentenceError('');
       const dict = selectedDictionary?.lang;
       const response = await fetch('/api/generate', {
         method: 'POST',
@@ -1379,13 +1485,14 @@ export default function Home() {
         }),
       });
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || `Failed with status ${response.status}`);
+        throw new Error(await readApiErrorMessage(response, `Failed with status ${response.status}`));
       }
       const data = await response.json();
       setGeneratedSentence(data.sentence || '');
+      setGeneratedSentenceError('');
     } catch (e) {
-      setGeneratedSentence(e instanceof Error ? e.message : 'Unknown error');
+      setGeneratedSentence('');
+      setGeneratedSentenceError(getErrorMessage(e));
     } finally {
       setIsGenerating(false);
     }
@@ -1403,6 +1510,7 @@ export default function Home() {
 
     setIsLearningMode(false);
     setGeneratedSentence('');
+    setGeneratedSentenceError('');
     setIsGenerating(false);
     setIsMenuOpen(false);
     setIsSearchFocused(false);
@@ -1771,6 +1879,7 @@ export default function Home() {
           display: 'flex',
           flexDirection: 'column',
           gap: '0.65rem',
+          overflowY: 'auto',
         }}
       >
         <div style={{
@@ -1977,6 +2086,25 @@ export default function Home() {
             Exit
           </button>
         </div>
+        <div
+          style={{
+            marginTop: 'auto',
+            paddingTop: '1rem',
+            color: 'var(--text-secondary)',
+            fontSize: '0.85rem',
+            lineHeight: 1.45,
+            textAlign: 'left',
+          }}
+        >
+          Please feel free to report any bugs or send feedback to{' '}
+          <a
+            href="mailto:envibe.dev@gmail.com"
+            onClick={(event) => event.stopPropagation()}
+            style={{ color: 'inherit', textDecoration: 'underline' }}
+          >
+            envibe.dev@gmail.com
+          </a>
+        </div>
       </div>
 
       {/* Left arrow */}
@@ -2039,10 +2167,7 @@ export default function Home() {
       <div>
         {isLoading && <p>Loading vocabulary…</p>}
         {!isLoading && errorMessage && (
-          <>
-            <h1>Failed to load vocabulary</h1>
-            <p>{errorMessage}</p>
-          </>
+          <RequestErrorMessage message={errorMessage} style={{ textAlign: 'center', fontSize: '1rem' }} />
         )}
         {!isLoading && !errorMessage && displayedEntry && (
           <div
@@ -2127,7 +2252,7 @@ export default function Home() {
                 {isGenerating ? 'Generating…' : 'Generate Sentence'}
               </button>
             )}
-            {generatedSentence && (
+            {(generatedSentence || generatedSentenceError) && (
               <div
                 style={{
                   position: 'absolute',
@@ -2150,57 +2275,63 @@ export default function Home() {
                   gap: '0.35rem',
                 }}
               >
-                <div data-testid="generated-sentence-text">{generatedSentence}</div>
-                <div style={{ justifySelf: 'end', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                  {isSentenceCopied && (
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', opacity: 0.90 }}>
-                      Copied!
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={async (event) => {
-                      event.stopPropagation();
-                      if (!generatedSentence) return;
-                      try {
-                        if (navigator?.clipboard?.writeText) {
-                          await navigator.clipboard.writeText(generatedSentence);
-                          setIsSentenceCopied(true);
-                        }
-                      } catch (_) {}
-                    }}
-                    aria-label="Copy generated sentence"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      padding: '0.2rem',
-                      border: 'none',
-                      borderRadius: '0.4rem',
-                      background: 'transparent',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      WebkitAppearance: 'none',
-                      appearance: 'none',
-                    }}
-                  >
-                    <svg
-                      enableBackground="new 0 0 24 24"
-                      focusable="false"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      width="18"
-                      aria-hidden="true"
-                      style={{ opacity: 0.9 }}
-                    >
-                      <g>
-                        <rect fill="none" height="24" width="24" />
-                      </g>
-                      <g>
-                        <path fill="currentColor" d="M16,20H5V6H3v14c0,1.1,0.9,2,2,2h11V20z M20,16V4c0-1.1-0.9-2-2-2H9C7.9,2,7,2.9,7,4v12c0,1.1,0.9,2,2,2h9 C19.1,18,20,17.1,20,16z M18,16H9V4h9V16z" />
-                      </g>
-                    </svg>
-                  </button>
-                </div>
+                {generatedSentenceError ? (
+                  <RequestErrorMessage message={generatedSentenceError} style={{ textAlign: 'center' }} />
+                ) : (
+                  <>
+                    <div data-testid="generated-sentence-text">{generatedSentence}</div>
+                    <div style={{ justifySelf: 'end', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                      {isSentenceCopied && (
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', opacity: 0.90 }}>
+                          Copied!
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={async (event) => {
+                          event.stopPropagation();
+                          if (!generatedSentence) return;
+                          try {
+                            if (navigator?.clipboard?.writeText) {
+                              await navigator.clipboard.writeText(generatedSentence);
+                              setIsSentenceCopied(true);
+                            }
+                          } catch (_) {}
+                        }}
+                        aria-label="Copy generated sentence"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '0.2rem',
+                          border: 'none',
+                          borderRadius: '0.4rem',
+                          background: 'transparent',
+                          color: 'var(--text-primary)',
+                          cursor: 'pointer',
+                          WebkitAppearance: 'none',
+                          appearance: 'none',
+                        }}
+                      >
+                        <svg
+                          enableBackground="new 0 0 24 24"
+                          focusable="false"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          width="18"
+                          aria-hidden="true"
+                          style={{ opacity: 0.9 }}
+                        >
+                          <g>
+                            <rect fill="none" height="24" width="24" />
+                          </g>
+                          <g>
+                            <path fill="currentColor" d="M16,20H5V6H3v14c0,1.1,0.9,2,2,2h11V20z M20,16V4c0-1.1-0.9-2-2-2H9C7.9,2,7,2.9,7,4v12c0,1.1,0.9,2,2,2h9 C19.1,18,20,17.1,20,16z M18,16H9V4h9V16z" />
+                          </g>
+                        </svg>
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -2431,7 +2562,11 @@ export default function Home() {
               </div>
             </div>
             {addError && (
-              <div data-testid="add-word-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addError}</div>
+              isAddRequestError ? (
+                <RequestErrorMessage data-testid="add-word-error" message={addError} />
+              ) : (
+                <div data-testid="add-word-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addError}</div>
+              )
             )}
           </div>
         </div>
@@ -2527,6 +2662,7 @@ export default function Home() {
                   setTranslatedSourceWord('');
                   setTranslatedDictionaryId(null);
                   setTranslateError('');
+                  setIsTranslateRequestError(false);
                   setTranslateSuccess('');
                   setIsTranslatedWordCopied(false);
                 }}
@@ -2676,7 +2812,11 @@ export default function Home() {
               <div data-testid="translate-success" style={{ color: 'var(--accent-strong)', textAlign: 'left', fontSize: '0.9rem' }}>{translateSuccess}</div>
             )}
             {translateError && (
-              <div data-testid="translate-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{translateError}</div>
+              isTranslateRequestError ? (
+                <RequestErrorMessage data-testid="translate-error" message={translateError} />
+              ) : (
+                <div data-testid="translate-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{translateError}</div>
+              )
             )}
           </div>
         </div>
@@ -2782,7 +2922,11 @@ export default function Home() {
               </div>
             </div>
             {addDictionaryError && (
-              <div data-testid="add-dictionary-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addDictionaryError}</div>
+              isAddDictionaryRequestError ? (
+                <RequestErrorMessage data-testid="add-dictionary-error" message={addDictionaryError} />
+              ) : (
+                <div data-testid="add-dictionary-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addDictionaryError}</div>
+              )
             )}
           </div>
         </div>
