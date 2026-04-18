@@ -193,6 +193,17 @@ async function selectAvailableDictionaryInAddWordDialog(page) {
   return available;
 }
 
+async function expectRequestError(page, locator, expectedCopyText, options = {}) {
+  const { timeout = 5000 } = options;
+  await expect(locator).toContainText('Something went wrong', { timeout });
+  await expect(locator).toContainText('You may copy error message or try later');
+  await expect(locator).not.toContainText(expectedCopyText);
+  const copyButton = locator.getByRole('button', { name: 'copy error message' });
+  await expect(copyButton).toBeVisible();
+  await copyButton.click();
+  await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(expectedCopyText);
+}
+
 test.describe.serial('Automated checks from BDD scenarios', () => {
   /** @type {import('@playwright/test').Browser} */
   let sharedBrowser;
@@ -210,6 +221,7 @@ test.describe.serial('Automated checks from BDD scenarios', () => {
     test.setTimeout(120_000);
     sharedBrowser = browser;
     sharedContext = await browser.newContext({ baseURL });
+    await sharedContext.grantPermissions(['clipboard-read', 'clipboard-write']);
     sharedPage = await sharedContext.newPage();
 
     await sharedPage.goto('/');
@@ -489,7 +501,7 @@ test.describe.serial('Automated checks from BDD scenarios', () => {
     await sharedPage.getByTestId(TEST_IDS.settings.close).click();
   });
 
-  test('Sentence generation error is shown to the user (mock)', async () => {
+  test('Sentence generation API error shows standard message (mock)', async () => {
     await ensureMainScreen(sharedPage);
     await sharedPage.route('**/api/generate', async (route) => {
       await route.fulfill({
@@ -499,12 +511,13 @@ test.describe.serial('Automated checks from BDD scenarios', () => {
       });
     });
     await sharedPage.getByTestId(TEST_IDS.sentence.generateButton).click();
-    await expect(sharedPage.getByTestId(TEST_IDS.sentence.text)).toHaveText('Mock generation failure');
+    await expectRequestError(sharedPage, sharedPage.getByTestId(TEST_IDS.sentence.error), 'Mock generation failure');
     await sharedPage.unroute('**/api/generate');
   });
 
-  test('addWord API timeout shows Failed to add word (mock)', async ({ baseURL }) => {
+  test('addWord API timeout shows standard message (mock)', async ({ baseURL }) => {
     const context = await sharedBrowser.newContext({ baseURL });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     const page = await context.newPage();
     await page.addInitScript((tokens) => {
       localStorage.setItem('AccessToken', tokens.accessToken);
@@ -530,7 +543,7 @@ test.describe.serial('Automated checks from BDD scenarios', () => {
     await typeInto(page.getByTestId(TEST_IDS.addWord.translationInput), randomAutoWord(8));
     await selectAvailableDictionaryInAddWordDialog(page);
     await page.getByTestId(TEST_IDS.addWord.submit).click();
-    await expect(page.getByTestId(TEST_IDS.addWord.error)).toHaveText('Failed to add word', { timeout: 15_000 });
+    await expectRequestError(page, page.getByTestId(TEST_IDS.addWord.error), 'Failed to add word', { timeout: 15_000 });
     await context.close();
   });
 
