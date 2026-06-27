@@ -3,20 +3,30 @@ import Head from 'next/head';
 import { stackClientApp } from '../stack/client';
 import { SENTENCE_TOPIC_OPTIONS } from '../lib/sentenceTopics';
 import { TRANSLATION_LANGUAGE_OPTIONS, DEFAULT_TRANSLATION_LANGUAGE_CODE } from '../lib/translationLanguages';
-
-const VOCABULARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/vocabulary';
-const DICTIONARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/dictionary';
-const LOCAL_STORAGE_KEY = 'vocabularyData';
-const LOCAL_STORAGE_DICTIONARY_KEY = 'dictionaryData';
-const LOCAL_STORAGE_SELECTED_DICTIONARY_KEY = 'selectedDictionaryId';
-const LOCAL_STORAGE_HISTORY_KEY = 'vocabularyViewedHistory';
-const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
-const LOCAL_STORAGE_RANDOM_KEY = 'vocabularyRandomOrder';
-const LOCAL_STORAGE_THEME_KEY = 'envibeTheme';
-const LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY = 'translationLanguageCode';
-const WORD_INPUT_MAX_LENGTH = 50;
-const STACK_REFRESH_URL = 'https://api.stack-auth.com/api/v1/auth/sessions/current/refresh';
-const STACK_CLIENT_VERSION = 'js @stackframe/js@2.8.27';
+import {
+  VOCABULARY_URL,
+  DICTIONARY_URL,
+  LOCAL_STORAGE_KEY,
+  LOCAL_STORAGE_DICTIONARY_KEY,
+  LOCAL_STORAGE_SELECTED_DICTIONARY_KEY,
+  LOCAL_STORAGE_HISTORY_KEY,
+  LOCAL_STORAGE_LEVEL_KEY,
+  LOCAL_STORAGE_RANDOM_KEY,
+  LOCAL_STORAGE_THEME_KEY,
+  LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY,
+  LOCAL_STORAGE_AUTH_KEY,
+  WORD_INPUT_MAX_LENGTH,
+  STACK_REFRESH_URL,
+  STACK_CLIENT_VERSION,
+} from '../lib/constants';
+import { safeStorage } from '../lib/storage';
+import {
+  generateRandomNonce,
+  pickFirstString,
+  getErrorMessage,
+  readApiErrorMessage,
+  copyTextToClipboard,
+} from '../lib/utils';
 
 const tokenStore = {
   accessToken: '',
@@ -33,69 +43,6 @@ class TokenRefreshError extends Error {
 function setTokenStoreTokens(accessToken, refreshToken) {
   tokenStore.accessToken = accessToken ?? '';
   tokenStore.refreshToken = refreshToken ?? '';
-}
-
-function generateRandomNonce() {
-  const globalCrypto = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
-  if (globalCrypto?.randomUUID) {
-    return globalCrypto.randomUUID();
-  }
-  if (globalCrypto?.getRandomValues) {
-    const buffer = new Uint32Array(4);
-    globalCrypto.getRandomValues(buffer);
-    return Array.from(buffer, (value) => value.toString(16).padStart(8, '0')).join('');
-  }
-  return Math.random().toString(36).slice(2);
-}
-
-function pickFirstString(...values) {
-  for (const value of values) {
-    if (typeof value === 'string' && value) {
-      return value;
-    }
-  }
-  return '';
-}
-
-function getErrorMessage(error, fallback = 'Unknown error') {
-  return error instanceof Error ? error.message : fallback;
-}
-
-async function readApiErrorMessage(response, fallback) {
-  const rawText = await response.text().catch(() => '');
-  if (!rawText) {
-    return fallback;
-  }
-
-  try {
-    const parsed = JSON.parse(rawText);
-    return pickFirstString(parsed?.message, parsed?.error, parsed?.details, parsed?.hint)
-      || JSON.stringify(parsed);
-  } catch (_) {
-    return rawText;
-  }
-}
-
-async function copyTextToClipboard(text) {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  if (typeof document === 'undefined') return;
-
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.left = '-9999px';
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand('copy');
-  } finally {
-    document.body.removeChild(textarea);
-  }
 }
 
 function RequestErrorMessage({ message, style, ...props }) {
@@ -170,32 +117,30 @@ export default function Home() {
     })();
     // Load stored tokens if present
     try {
-      if (typeof window !== 'undefined') {
-        let storedAccess = localStorage.getItem('AccessToken') || '';
-        let storedRefresh = localStorage.getItem('RefreshToken') || '';
-        let storedUserId = localStorage.getItem('AuthUserId') || '';
+      let storedAccess = safeStorage.get('AccessToken') || '';
+      let storedRefresh = safeStorage.get('RefreshToken') || '';
+      let storedUserId = safeStorage.get('AuthUserId') || '';
 
-        if (!storedAccess || !storedRefresh || !storedUserId) {
-          const raw = localStorage.getItem(LOCAL_STORAGE_AUTH_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed.access_token === 'string' && !storedAccess) storedAccess = parsed.access_token;
-            if (parsed && typeof parsed.refresh_token === 'string' && !storedRefresh) storedRefresh = parsed.refresh_token;
-            if (parsed && typeof parsed.user_id === 'string' && !storedUserId) storedUserId = parsed.user_id;
-          }
+      if (!storedAccess || !storedRefresh || !storedUserId) {
+        const raw = safeStorage.get(LOCAL_STORAGE_AUTH_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.access_token === 'string' && !storedAccess) storedAccess = parsed.access_token;
+          if (parsed && typeof parsed.refresh_token === 'string' && !storedRefresh) storedRefresh = parsed.refresh_token;
+          if (parsed && typeof parsed.user_id === 'string' && !storedUserId) storedUserId = parsed.user_id;
         }
-
-        if (storedAccess) setAccessToken(storedAccess);
-        if (storedRefresh) setRefreshToken(storedRefresh);
-        if (storedUserId) setAuthUserId(storedUserId);
       }
+
+      if (storedAccess) setAccessToken(storedAccess);
+      if (storedRefresh) setRefreshToken(storedRefresh);
+      if (storedUserId) setAuthUserId(storedUserId);
     } catch (_) {}
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const storedTheme = localStorage.getItem(LOCAL_STORAGE_THEME_KEY);
+    const storedTheme = safeStorage.get(LOCAL_STORAGE_THEME_KEY);
     if (storedTheme === 'light' || storedTheme === 'dark') {
       setTheme(storedTheme);
       return;
@@ -205,9 +150,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     try {
-      const raw = localStorage.getItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+      const raw = safeStorage.get(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
       if (!raw) return;
       const parsed = Number(raw);
       if (Number.isNaN(parsed)) return;
@@ -219,11 +163,7 @@ export default function Home() {
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-theme', theme);
     }
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(LOCAL_STORAGE_THEME_KEY, theme);
-      }
-    } catch (_) {}
+    safeStorage.set(LOCAL_STORAGE_THEME_KEY, theme);
   }, [theme]);
 
   async function handleEmailPasswordSignIn(event) {
@@ -242,13 +182,11 @@ export default function Home() {
           refresh_token: auth?.refreshToken ?? '',
           user_id: u?.id ?? '',
         };
-        try {
-          // Store both the bundled object and explicit keys as requested
-          localStorage.setItem(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(payload));
-          localStorage.setItem('AccessToken', payload.access_token || '');
-          localStorage.setItem('RefreshToken', payload.refresh_token || '');
-          localStorage.setItem('AuthUserId', payload.user_id || '');
-        } catch (_) {}
+        // Store both the bundled object and explicit keys as requested
+        safeStorage.set(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(payload));
+        safeStorage.set('AccessToken', payload.access_token || '');
+        safeStorage.set('RefreshToken', payload.refresh_token || '');
+        safeStorage.set('AuthUserId', payload.user_id || '');
         setAccessToken(payload.access_token);
         setRefreshToken(payload.refresh_token);
         setAuthUserId(payload.user_id);
@@ -336,7 +274,6 @@ export default function Home() {
     }
   }, []);
   // Auth tokens
-  const LOCAL_STORAGE_AUTH_KEY = 'stackAuthTokens';
   const [accessToken, setAccessToken] = useState('');
   const [refreshToken, setRefreshToken] = useState('');
   const [authUserId, setAuthUserId] = useState('');
@@ -418,20 +355,16 @@ export default function Home() {
       setRefreshToken(resolvedRefreshToken);
     }
 
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('AccessToken', nextAccessToken);
-        localStorage.setItem('RefreshToken', resolvedRefreshToken);
-        localStorage.setItem(
-          LOCAL_STORAGE_AUTH_KEY,
-          JSON.stringify({
-            access_token: nextAccessToken,
-            refresh_token: resolvedRefreshToken,
-            user_id: authUserId || '',
-          }),
-        );
-      } catch (_) {}
-    }
+    safeStorage.set('AccessToken', nextAccessToken);
+    safeStorage.set('RefreshToken', resolvedRefreshToken);
+    safeStorage.set(
+      LOCAL_STORAGE_AUTH_KEY,
+      JSON.stringify({
+        access_token: nextAccessToken,
+        refresh_token: resolvedRefreshToken,
+        user_id: authUserId || '',
+      }),
+    );
 
     return nextAccessToken;
   }, [authUserId, refreshToken]);
@@ -453,28 +386,15 @@ export default function Home() {
     setRandomHistoryPos(-1);
     initialPositionResolvedRef.current = false;
     setIsHistoryLoaded(false);
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY);
-        localStorage.removeItem('AccessToken');
-        localStorage.removeItem('RefreshToken');
-        localStorage.removeItem('AuthUserId');
-        localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
-      }
-    } catch (_) {}
+    safeStorage.remove(LOCAL_STORAGE_AUTH_KEY);
+    safeStorage.remove('AccessToken');
+    safeStorage.remove('RefreshToken');
+    safeStorage.remove('AuthUserId');
+    safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
   }, [user]);
 
   function buildDefaultOrder(length) {
     return Array.from({ length }, (_, i) => i);
-  }
-
-  function shuffleOrder(order) {
-    const arr = order.slice();
-    for (let i = arr.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
   }
 
   const mapApiDataToEntries = useCallback((data) => {
@@ -581,8 +501,8 @@ export default function Home() {
     if (!user && !effectiveAccessToken) return;
     try {
       setIsDictionaryLoading(true);
-      if (!skipCache && typeof window !== 'undefined') {
-        const cached = localStorage.getItem(LOCAL_STORAGE_DICTIONARY_KEY);
+      if (!skipCache) {
+        const cached = safeStorage.get(LOCAL_STORAGE_DICTIONARY_KEY);
         if (cached) {
           const cachedObject = JSON.parse(cached);
           if (!isActive()) return;
@@ -601,9 +521,7 @@ export default function Home() {
 
       const data = await fetchDictionaryFromApi(true);
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(LOCAL_STORAGE_DICTIONARY_KEY, JSON.stringify(data));
-      }
+      safeStorage.set(LOCAL_STORAGE_DICTIONARY_KEY, JSON.stringify(data));
 
       if (!isActive()) return;
       const dictionaries = mapApiDataToDictionaries(data);
@@ -632,8 +550,8 @@ export default function Home() {
     if (!user && !effectiveAccessToken) return;
     try {
       setIsLoading(true);
-      if (!skipCache && typeof window !== 'undefined') {
-        const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!skipCache) {
+        const cached = safeStorage.get(LOCAL_STORAGE_KEY);
         if (cached) {
           const cachedObject = JSON.parse(cached);
           if (!isActive()) return;
@@ -645,9 +563,7 @@ export default function Home() {
 
       const data = await fetchVocabularyFromApi(true);
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
-      }
+      safeStorage.set(LOCAL_STORAGE_KEY, JSON.stringify(data));
 
       if (!isActive()) return;
       const entries = mapApiDataToEntries(data);
@@ -1087,14 +1003,11 @@ export default function Home() {
   }, [selectedDictionaryId]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      if (selectedDictionaryId === null) {
-        localStorage.removeItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
-        return;
-      }
-      localStorage.setItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY, String(selectedDictionaryId));
-    } catch (_) {}
+    if (selectedDictionaryId === null) {
+      safeStorage.remove(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+      return;
+    }
+    safeStorage.set(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY, String(selectedDictionaryId));
   }, [selectedDictionaryId]);
 
   useEffect(() => {
@@ -1105,23 +1018,19 @@ export default function Home() {
 
   // Load history on mount
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      setIsHistoryLoaded(true);
-      return;
-    }
     try {
-      const raw = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
+      const raw = safeStorage.get(LOCAL_STORAGE_HISTORY_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           setViewedHistory(parsed);
         }
       }
-      const savedLevel = localStorage.getItem(LOCAL_STORAGE_LEVEL_KEY);
+      const savedLevel = safeStorage.get(LOCAL_STORAGE_LEVEL_KEY);
       if (savedLevel) setSelectedLevel(savedLevel);
-      const savedRandom = localStorage.getItem(LOCAL_STORAGE_RANDOM_KEY);
+      const savedRandom = safeStorage.get(LOCAL_STORAGE_RANDOM_KEY);
       if (savedRandom === 'true') setIsRandomOrder(true);
-      const savedTranslationLanguageCode = localStorage.getItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
+      const savedTranslationLanguageCode = safeStorage.get(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
       if (savedTranslationLanguageCode && TRANSLATION_LANGUAGE_OPTIONS.some((lang) => lang.code === savedTranslationLanguageCode)) {
         setSelectedTranslationLanguageCode(savedTranslationLanguageCode);
       }
@@ -1264,9 +1173,7 @@ export default function Home() {
         dict_id: entry.dict_id ?? undefined,
         viewedAt: Date.now(),
       }];
-      try {
-        localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(next));
-      } catch (_) {}
+      safeStorage.set(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(next));
       return next;
     });
   }, []);
@@ -1390,11 +1297,11 @@ export default function Home() {
     try {
       await user?.signOut({ redirectUrl: '/' });
       setUser(null);
-      try { localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY); } catch (_) {}
-      try { localStorage.removeItem('AccessToken'); } catch (_) {}
-      try { localStorage.removeItem('RefreshToken'); } catch (_) {}
-      try { localStorage.removeItem('AuthUserId'); } catch (_) {}
-      try { localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY); } catch (_) {}
+      safeStorage.remove(LOCAL_STORAGE_AUTH_KEY);
+      safeStorage.remove('AccessToken');
+      safeStorage.remove('RefreshToken');
+      safeStorage.remove('AuthUserId');
+      safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
       setAccessToken('');
       setRefreshToken('');
       setAuthUserId('');
@@ -2016,7 +1923,7 @@ export default function Home() {
               event.stopPropagation();
               const enabled = !isRandomOrder;
               setIsRandomOrder(enabled);
-              try { localStorage.setItem(LOCAL_STORAGE_RANDOM_KEY, enabled ? 'true' : 'false'); } catch (_) {}
+              safeStorage.set(LOCAL_STORAGE_RANDOM_KEY, enabled ? 'true' : 'false');
               setRandomHistory([]);
               setRandomHistoryPos(-1);
             }}
@@ -2402,11 +2309,7 @@ export default function Home() {
                   data-testid="history-clear"
                   onClick={() => {
                     setViewedHistory([]);
-                    try {
-                      if (typeof window !== 'undefined') {
-                      localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
-                    }
-                  } catch (_) {}
+                    safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
                   }}
                   style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
                 >
@@ -2616,9 +2519,7 @@ export default function Home() {
                   onChange={(e) => {
                     const code = e.target.value;
                     setSelectedTranslationLanguageCode(code);
-                    try {
-                      localStorage.setItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY, code);
-                    } catch (_) {}
+                    safeStorage.set(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY, code);
                   }}
                   style={{
                     padding: '0.45rem 0.6rem',
@@ -3025,15 +2926,11 @@ export default function Home() {
                   type="button"
                   data-testid="settings-reset"
                   onClick={() => {
-                    try {
-                      if (typeof window !== 'undefined') {
-                        localStorage.removeItem(LOCAL_STORAGE_KEY);
-                        localStorage.removeItem(LOCAL_STORAGE_DICTIONARY_KEY);
-                        localStorage.removeItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
-                        localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
-                        localStorage.removeItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
-                      }
-                    } catch (_) {}
+                    safeStorage.remove(LOCAL_STORAGE_KEY);
+                    safeStorage.remove(LOCAL_STORAGE_DICTIONARY_KEY);
+                    safeStorage.remove(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+                    safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
+                    safeStorage.remove(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
                     window.location.reload();
                   }}
                   style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
@@ -3052,9 +2949,7 @@ export default function Home() {
                   onChange={(e) => {
                     const level = e.target.value;
                     setSelectedLevel(level);
-                    try {
-                      localStorage.setItem(LOCAL_STORAGE_LEVEL_KEY, level);
-                    } catch (_) {}
+                    safeStorage.set(LOCAL_STORAGE_LEVEL_KEY, level);
                   }}
                   style={{
                     padding: '0.45rem 0.6rem',
