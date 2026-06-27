@@ -29,6 +29,8 @@ import {
 import RequestErrorMessage from '../components/RequestErrorMessage';
 import SignInForm from '../components/SignInForm';
 import SideMenu from '../components/SideMenu';
+import HistoryModal from '../components/HistoryModal';
+import AddWordModal from '../components/AddWordModal';
 
 const tokenStore = {
   accessToken: '',
@@ -1874,204 +1876,34 @@ export default function Home() {
       </div>
 
       {/* History overlay */}
-      {isHistoryOpen && (
-        <div
-          onClick={() => setIsHistoryOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--overlay)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="History"
-          data-testid="history-modal"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', maxHeight: '80vh', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
-              <strong>History</strong>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button
-                  type="button"
-                  data-testid="history-clear"
-                  onClick={() => {
-                    setViewedHistory([]);
-                    safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
-                  }}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  data-testid="history-close"
-                  onClick={() => setIsHistoryOpen(false)}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-on-accent)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
-              {filteredViewedHistory.length === 0 ? (
-                <p data-testid="history-empty" style={{ padding: '1rem', opacity: 0.7 }}>No viewed words yet.</p>
-              ) : (
-                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {filteredViewedHistory.map((item, index) => (
-                    <li key={`${item.id ?? 'noid'}-${index}`} data-testid="history-item" style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-                      <div style={{ fontWeight: 600 }}>{item.word}</div>
-                      <div style={{ opacity: 0.8 }}>{item.translation}</div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <HistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        onClear={() => {
+          setViewedHistory([]);
+          safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
+        }}
+        items={filteredViewedHistory}
+      />
 
       {/* Add word modal */}
-      {isAddModalOpen && (
-        <div
-          onClick={closeAddModal}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--overlay)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 20,
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Add new word"
-          data-testid="add-word-modal"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--surface)',
-              color: 'var(--text-primary)',
-              width: 'min(480px, 95vw)',
-              borderRadius: '0.6rem',
-              boxShadow: 'var(--shadow-elevated)',
-              padding: '1rem',
-              display: 'grid',
-              gap: '0.75rem',
-            }}
-          >
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>New word</span>
-              <input
-                data-testid="add-word-input"
-                maxLength={WORD_INPUT_MAX_LENGTH}
-                value={newWord}
-                onChange={(e) => setNewWord(e.target.value.slice(0, WORD_INPUT_MAX_LENGTH))}
-                placeholder="Enter a new word"
-                onKeyDown={(e) => e.stopPropagation()}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>Translation</span>
-              <input
-                data-testid="add-word-translation-input"
-                maxLength={WORD_INPUT_MAX_LENGTH}
-                value={newTranslation}
-                onChange={(e) => setNewTranslation(e.target.value.slice(0, WORD_INPUT_MAX_LENGTH))}
-                placeholder="Enter translation"
-                onKeyDown={(e) => e.stopPropagation()}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>Dictionary</span>
-              <select
-                data-testid="add-word-dictionary-select"
-                value={newDictionaryId ?? ''}
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  if (!nextValue) {
-                    setNewDictionaryId(null);
-                    return;
-                  }
-                  const nextId = Number(nextValue);
-                  setNewDictionaryId(Number.isNaN(nextId) ? null : nextId);
-                }}
-                onKeyDown={(e) => e.stopPropagation()}
-                disabled={dictionaryList.length === 0 || isDictionaryLoading}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box', WebkitAppearance: 'none', appearance: 'none', opacity: isDictionaryLoading ? 0.7 : 1 }}
-              >
-                {dictionaryList.length === 0 ? (
-                  <option value="">{isDictionaryLoading ? 'Loading…' : 'No dictionaries'}</option>
-                ) : (
-                  dictionaryList.map((dict) => (
-                    <option key={dict.id} value={dict.id}>
-                      {dict.title}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', alignContent: 'center' }}>
-              {addSuccess && (
-                <div data-testid="add-word-success" style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
-                  Word successfully added
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  data-testid="add-word-submit"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAddWord();
-                  }}
-                  disabled={isAddLoading}
-                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: isAddLoading ? 'default' : 'pointer', WebkitAppearance: 'none', appearance: 'none', opacity: isAddLoading ? 0.85 : 1 }}
-                >
-                  {isAddLoading ? (
-                    <span className="add-button-dots" aria-live="polite">
-                      <span className="add-button-dot" />
-                      <span className="add-button-dot" />
-                      <span className="add-button-dot" />
-                    </span>
-                  ) : (
-                    'Add'
-                  )}
-                </button>
-                <button
-                  type="button"
-                  data-testid="add-word-close"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeAddModal();
-                  }}
-                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            {addError && (
-              isAddRequestError ? (
-                <RequestErrorMessage data-testid="add-word-error" message={addError} />
-              ) : (
-                <div data-testid="add-word-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addError}</div>
-              )
-            )}
-          </div>
-        </div>
-      )}
+      <AddWordModal
+        isOpen={isAddModalOpen}
+        onClose={closeAddModal}
+        word={newWord}
+        onWordChange={setNewWord}
+        translation={newTranslation}
+        onTranslationChange={setNewTranslation}
+        dictionaryId={newDictionaryId}
+        onDictionaryChange={setNewDictionaryId}
+        dictionaryList={dictionaryList}
+        isDictionaryLoading={isDictionaryLoading}
+        success={addSuccess}
+        isLoading={isAddLoading}
+        error={addError}
+        isRequestError={isAddRequestError}
+        onSubmit={handleAddWord}
+      />
 
       {/* Translate modal */}
       {isTranslateModalOpen && (
