@@ -434,65 +434,83 @@ export default function Home() {
       .sort((a, b) => a.id - b.id);
   }, []);
 
-  const fetchVocabularyFromApi = useCallback(async (allowRefresh = true) => {
-    const headers = { Accept: 'application/json' };
+  // Generic authenticated JSON request against the Neon REST API.
+  // Handles bearer auth, a single 400 -> token-refresh -> retry cycle,
+  // optional abort timeout and consistent error-message extraction.
+  const apiRequest = useCallback(async (url, options = {}) => {
+    const {
+      method = 'GET',
+      body,
+      headers: extraHeaders,
+      timeoutMs,
+      allowRefresh = true,
+      abortErrorMessage = 'Request timed out',
+    } = options;
+
+    const headers = {
+      Accept: 'application/json',
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...extraHeaders,
+    };
     const currentAccessToken = tokenStore.accessToken || accessToken;
     if (currentAccessToken) {
       headers.Authorization = `Bearer ${currentAccessToken}`;
     }
 
-    const response = await fetch(VOCABULARY_URL, { method: 'GET', headers });
+    let controller;
+    let timeoutId;
+    if (timeoutMs) {
+      controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    }
 
-    if (response.status === 400 && allowRefresh) {
-      if (tokenStore.refreshToken) {
-        try {
-          await refreshAccessToken();
-        } catch (refreshError) {
-          await logoutDueToRefreshFailure();
-          throw refreshError;
+    try {
+      const response = await fetch(url, {
+        method,
+        headers,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (response.status === 400 && allowRefresh) {
+        if (tokenStore.refreshToken) {
+          try {
+            await refreshAccessToken();
+          } catch (refreshError) {
+            await logoutDueToRefreshFailure();
+            throw refreshError;
+          }
+          return apiRequest(url, { ...options, allowRefresh: false });
         }
-        return fetchVocabularyFromApi(false);
+        await logoutDueToRefreshFailure();
+        throw new TokenRefreshError('Refresh token missing for retry');
       }
-      await logoutDueToRefreshFailure();
-      throw new TokenRefreshError('Refresh token missing for retry');
-    }
 
-    if (!response.ok) {
-      throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
-    }
+      if (!response.ok) {
+        throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
+      }
 
-    return response.json();
+      return response.json();
+    } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (error?.name === 'AbortError') {
+        throw new Error(abortErrorMessage);
+      }
+      throw error;
+    }
   }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
 
-  const fetchDictionaryFromApi = useCallback(async (allowRefresh = true) => {
-    const headers = { Accept: 'application/json' };
-    const currentAccessToken = tokenStore.accessToken || accessToken;
-    if (currentAccessToken) {
-      headers.Authorization = `Bearer ${currentAccessToken}`;
-    }
+  const fetchVocabularyFromApi = useCallback(
+    (allowRefresh = true) => apiRequest(VOCABULARY_URL, { allowRefresh }),
+    [apiRequest],
+  );
 
-    const response = await fetch(DICTIONARY_URL, { method: 'GET', headers });
-
-    if (response.status === 400 && allowRefresh) {
-      if (tokenStore.refreshToken) {
-        try {
-          await refreshAccessToken();
-        } catch (refreshError) {
-          await logoutDueToRefreshFailure();
-          throw refreshError;
-        }
-        return fetchDictionaryFromApi(false);
-      }
-      await logoutDueToRefreshFailure();
-      throw new TokenRefreshError('Refresh token missing for retry');
-    }
-
-    if (!response.ok) {
-      throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
-    }
-
-    return response.json();
-  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+  const fetchDictionaryFromApi = useCallback(
+    (allowRefresh = true) => apiRequest(DICTIONARY_URL, { allowRefresh }),
+    [apiRequest],
+  );
 
   const loadDictionary = useCallback(async (options = {}) => {
     const { skipCache = false, isActiveRef } = options;
@@ -580,116 +598,29 @@ export default function Home() {
     }
   }, [accessToken, user, fetchVocabularyFromApi, mapApiDataToEntries]);
 
-  const addWordToApi = useCallback(async (payload, allowRefresh = true) => {
-    const headers = {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    };
-    const currentAccessToken = tokenStore.accessToken || accessToken;
-    if (currentAccessToken) {
-      headers.Authorization = `Bearer ${currentAccessToken}`;
-    }
+  const addWordToApi = useCallback(
+    (payload, allowRefresh = true) => apiRequest(VOCABULARY_URL, {
+      method: 'POST',
+      body: payload,
+      headers: { Prefer: 'return=representation' },
+      timeoutMs: 5000,
+      allowRefresh,
+      abortErrorMessage: 'Failed to add word',
+    }),
+    [apiRequest],
+  );
 
-    // Create AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds timeout
-
-    try {
-      const response = await fetch(VOCABULARY_URL, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.status === 400 && allowRefresh) {
-        if (tokenStore.refreshToken) {
-          try {
-            await refreshAccessToken();
-          } catch (refreshError) {
-            await logoutDueToRefreshFailure();
-            throw refreshError;
-          }
-          return addWordToApi(payload, false);
-        }
-        await logoutDueToRefreshFailure();
-        throw new TokenRefreshError('Refresh token missing for retry');
-      }
-
-      if (!response.ok) {
-        throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
-      }
-
-      return response.json();
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      // Handle timeout/abort error
-      if (error.name === 'AbortError') {
-        throw new Error('Failed to add word');
-      }
-      
-      // Re-throw other errors
-      throw error;
-    }
-  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
-
-  const addDictionaryToApi = useCallback(async (payload, allowRefresh = true) => {
-    const headers = {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    };
-    const currentAccessToken = tokenStore.accessToken || accessToken;
-    if (currentAccessToken) {
-      headers.Authorization = `Bearer ${currentAccessToken}`;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-    try {
-      const response = await fetch(DICTIONARY_URL, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.status === 400 && allowRefresh) {
-        if (tokenStore.refreshToken) {
-          try {
-            await refreshAccessToken();
-          } catch (refreshError) {
-            await logoutDueToRefreshFailure();
-            throw refreshError;
-          }
-          return addDictionaryToApi(payload, false);
-        }
-        await logoutDueToRefreshFailure();
-        throw new TokenRefreshError('Refresh token missing for retry');
-      }
-
-      if (!response.ok) {
-        throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
-      }
-
-      return response.json();
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      if (error.name === 'AbortError') {
-        throw new Error('Failed to add dictionary');
-      }
-
-      throw error;
-    }
-  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+  const addDictionaryToApi = useCallback(
+    (payload, allowRefresh = true) => apiRequest(DICTIONARY_URL, {
+      method: 'POST',
+      body: payload,
+      headers: { Prefer: 'return=representation' },
+      timeoutMs: 5000,
+      allowRefresh,
+      abortErrorMessage: 'Failed to add dictionary',
+    }),
+    [apiRequest],
+  );
 
   const openAddModal = useCallback((prefill = '') => {
     const normalized = prefill.trim().slice(0, WORD_INPUT_MAX_LENGTH);
