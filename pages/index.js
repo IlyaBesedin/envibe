@@ -33,6 +33,7 @@ import HistoryModal from '../components/HistoryModal';
 import AddWordModal from '../components/AddWordModal';
 import AddDictionaryModal from '../components/AddDictionaryModal';
 import TranslateModal from '../components/TranslateModal';
+import SettingsModal from '../components/SettingsModal';
 
 const tokenStore = {
   accessToken: '',
@@ -1958,183 +1959,33 @@ export default function Home() {
       />
 
       {/* Settings overlay */}
-      {isSettingsOpen && (
-        <div
-          onClick={() => setIsSettingsOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--overlay)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 100,
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Settings"
-          data-testid="settings-modal"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
-              <strong>Settings</strong>
-              <button
-                type="button"
-                data-testid="settings-close"
-                onClick={() => setIsSettingsOpen(false)}
-                style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-              >
-                Close
-              </button>
-            </div>
-            <div style={{ padding: '1rem', display: 'grid', gap: '0.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Dark theme</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-theme-toggle"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-                  }}
-                  style={toggleButtonStyle(theme === 'dark')}
-                >
-                  {theme === 'dark' ? 'On' : 'Off'}
-                </button>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Hide sentence generation</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-hide-sentence-toggle"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setIsSentenceGenerationHidden((prev) => !prev);
-                  }}
-                  style={toggleButtonStyle(isSentenceGenerationHidden)}
-                >
-                  {isSentenceGenerationHidden ? 'On' : 'Off'}
-                </button>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>History</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-history-open"
-                  onClick={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Open
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Reset cache and history</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-reset"
-                  onClick={() => {
-                    safeStorage.remove(LOCAL_STORAGE_KEY);
-                    safeStorage.remove(LOCAL_STORAGE_DICTIONARY_KEY);
-                    safeStorage.remove(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
-                    safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
-                    safeStorage.remove(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
-                    window.location.reload();
-                  }}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Reset
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Language level</div>
-                </div>
-                <select
-                  data-testid="settings-language-level-select"
-                  value={selectedLevel}
-                  onChange={(e) => {
-                    const level = e.target.value;
-                    setSelectedLevel(level);
-                    safeStorage.set(LOCAL_STORAGE_LEVEL_KEY, level);
-                  }}
-                  style={{
-                    padding: '0.45rem 0.6rem',
-                    borderRadius: '0.45rem',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--input-bg)',
-                    color: 'var(--text-primary)',
-                    fontSize: '0.95rem',
-                    WebkitAppearance: 'none',
-                    appearance: 'none',
-                  }}
-                >
-                  {['A1','A2','B1','B2','C1','C2'].map((lvl) => (
-                    <option key={lvl} value={lvl}>{lvl}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Sentence topic</div>
-                </div>
-                <select
-                  data-testid="settings-topic-select"
-                  value={selectedTopic}
-                  onChange={(e) => setSelectedTopic(e.target.value)}
-                  style={{
-                    padding: '0.45rem 0.6rem',
-                    borderRadius: '0.45rem',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--input-bg)',
-                    color: 'var(--text-primary)',
-                    width: `calc(${Math.max(6, selectedTopicLabel.length)}ch + 1.2rem)`,
-                    maxWidth: '100%',
-                    textAlign: 'center',
-                    textAlignLast: 'center',
-                    fontSize: '0.95rem',
-                    WebkitAppearance: 'none',
-                    appearance: 'none',
-                  }}
-                >
-                  {SENTENCE_TOPIC_OPTIONS.map((topic) => (
-                    <option key={topic.value} value={topic.value}>
-                      {topic.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Add new dictionary</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-add-dictionary"
-                  onClick={openAddDictionaryModal}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        theme={theme}
+        onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+        isSentenceGenerationHidden={isSentenceGenerationHidden}
+        onToggleSentenceGeneration={() => setIsSentenceGenerationHidden((prev) => !prev)}
+        onOpenHistory={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }}
+        onReset={() => {
+          safeStorage.remove(LOCAL_STORAGE_KEY);
+          safeStorage.remove(LOCAL_STORAGE_DICTIONARY_KEY);
+          safeStorage.remove(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+          safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
+          safeStorage.remove(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
+          window.location.reload();
+        }}
+        selectedLevel={selectedLevel}
+        onLevelChange={(level) => {
+          setSelectedLevel(level);
+          safeStorage.set(LOCAL_STORAGE_LEVEL_KEY, level);
+        }}
+        selectedTopic={selectedTopic}
+        selectedTopicLabel={selectedTopicLabel}
+        onTopicChange={setSelectedTopic}
+        onAddDictionary={openAddDictionaryModal}
+        toggleButtonStyle={toggleButtonStyle}
+      />
     </div>
     </>
   );
