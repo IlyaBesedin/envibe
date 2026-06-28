@@ -10,8 +10,8 @@ dotenv.config();
 
 const AUTH_EMAIL = process.env.E2E_EMAIL;
 const AUTH_PASSWORD = process.env.E2E_PASSWORD;
-const VOCABULARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/vocabulary';
-const DICTIONARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/dictionary';
+const VOCABULARY_URL = process.env.NEXT_PUBLIC_NEON_REST_URL + '/vocabulary';
+const DICTIONARY_URL = process.env.NEXT_PUBLIC_NEON_REST_URL + '/dictionary';
 const STACK_REFRESH_URL = 'https://api.stack-auth.com/api/v1/auth/sessions/current/refresh';
 const AUTH_DIR = path.join(process.cwd(), 'e2e', '.auth');
 const TOKENS_PATH = path.join(AUTH_DIR, 'tokens.json');
