@@ -126,7 +126,7 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY` | ✅ | Stack Auth publishable client key |
 | `STACK_SECRET_SERVER_KEY` | ✅ | Stack Auth secret server key |
 | `DATABASE_URL` | ✅ | Neon PostgreSQL connection string |
-| `NEXT_PUBLIC_NEON_REST_URL` | ⬜ | Override the Neon Data API base URL |
+| `NEXT_PUBLIC_NEON_REST_URL` | ✅ | Neon Data API base URL (e.g. `https://<endpoint>.apirest.<region>.aws.neon.tech/neondb/rest/v1`) |
 | `PLAYWRIGHT_BASE_URL` | ⬜ | Override e2e base URL (default `http://127.0.0.1:3000`) |
 
 > Get Stack Auth keys from https://app.stack-auth.com
