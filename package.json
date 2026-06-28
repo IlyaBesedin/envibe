@@ -1,9 +1,14 @@
 {
-  "name": "english-vibe",
+  "name": "envibe",
   "version": "1.0.0",
-  "description": "",
+  "description": "English vocabulary learning app with AI-generated example sentences, word translation, and multi-dictionary support (Next.js, Neon, Stack Auth, Gemini).",
   "main": "generate.js",
   "type": "module",
+  "homepage": "https://envibe.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IlyaBesedin/envibe.git"
+  },
   "dependencies": {
     "@google/genai": "^1.11.0",
     "@google/generative-ai": "^0.24.1",
@@ -26,7 +31,18 @@
     "build": "next build",
     "start": "next start"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "keywords": [
+    "vocabulary",
+    "english-learning",
+    "nextjs",
+    "react",
+    "gemini",
+    "neon",
+    "stack-auth"
+  ],
+  "author": "Ilya Besedin",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
 }

@@ -3,20 +3,38 @@ import Head from 'next/head';
 import { stackClientApp } from '../stack/client';
 import { SENTENCE_TOPIC_OPTIONS } from '../lib/sentenceTopics';
 import { TRANSLATION_LANGUAGE_OPTIONS, DEFAULT_TRANSLATION_LANGUAGE_CODE } from '../lib/translationLanguages';
-
-const VOCABULARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/vocabulary';
-const DICTIONARY_URL = 'https://YOUR_NEON_REST_HOST/neondb/rest/v1/dictionary';
-const LOCAL_STORAGE_KEY = 'vocabularyData';
-const LOCAL_STORAGE_DICTIONARY_KEY = 'dictionaryData';
-const LOCAL_STORAGE_SELECTED_DICTIONARY_KEY = 'selectedDictionaryId';
-const LOCAL_STORAGE_HISTORY_KEY = 'vocabularyViewedHistory';
-const LOCAL_STORAGE_LEVEL_KEY = 'vocabularyLevel';
-const LOCAL_STORAGE_RANDOM_KEY = 'vocabularyRandomOrder';
-const LOCAL_STORAGE_THEME_KEY = 'envibeTheme';
-const LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY = 'translationLanguageCode';
-const WORD_INPUT_MAX_LENGTH = 50;
-const STACK_REFRESH_URL = 'https://api.stack-auth.com/api/v1/auth/sessions/current/refresh';
-const STACK_CLIENT_VERSION = 'js @stackframe/js@2.8.27';
+import {
+  VOCABULARY_URL,
+  DICTIONARY_URL,
+  LOCAL_STORAGE_KEY,
+  LOCAL_STORAGE_DICTIONARY_KEY,
+  LOCAL_STORAGE_SELECTED_DICTIONARY_KEY,
+  LOCAL_STORAGE_HISTORY_KEY,
+  LOCAL_STORAGE_LEVEL_KEY,
+  LOCAL_STORAGE_RANDOM_KEY,
+  LOCAL_STORAGE_THEME_KEY,
+  LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY,
+  LOCAL_STORAGE_AUTH_KEY,
+  WORD_INPUT_MAX_LENGTH,
+  STACK_REFRESH_URL,
+  STACK_CLIENT_VERSION,
+} from '../lib/constants';
+import { safeStorage } from '../lib/storage';
+import {
+  generateRandomNonce,
+  pickFirstString,
+  getErrorMessage,
+  readApiErrorMessage,
+} from '../lib/utils';
+import RequestErrorMessage from '../components/RequestErrorMessage';
+import SignInForm from '../components/SignInForm';
+import SideMenu from '../components/SideMenu';
+import HistoryModal from '../components/HistoryModal';
+import AddWordModal from '../components/AddWordModal';
+import AddDictionaryModal from '../components/AddDictionaryModal';
+import TranslateModal from '../components/TranslateModal';
+import SettingsModal from '../components/SettingsModal';
+import WordCard from '../components/WordCard';
 
 const tokenStore = {
   accessToken: '',
@@ -33,116 +51,6 @@ class TokenRefreshError extends Error {
 function setTokenStoreTokens(accessToken, refreshToken) {
   tokenStore.accessToken = accessToken ?? '';
   tokenStore.refreshToken = refreshToken ?? '';
-}
-
-function generateRandomNonce() {
-  const globalCrypto = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
-  if (globalCrypto?.randomUUID) {
-    return globalCrypto.randomUUID();
-  }
-  if (globalCrypto?.getRandomValues) {
-    const buffer = new Uint32Array(4);
-    globalCrypto.getRandomValues(buffer);
-    return Array.from(buffer, (value) => value.toString(16).padStart(8, '0')).join('');
-  }
-  return Math.random().toString(36).slice(2);
-}
-
-function pickFirstString(...values) {
-  for (const value of values) {
-    if (typeof value === 'string' && value) {
-      return value;
-    }
-  }
-  return '';
-}
-
-function getErrorMessage(error, fallback = 'Unknown error') {
-  return error instanceof Error ? error.message : fallback;
-}
-
-async function readApiErrorMessage(response, fallback) {
-  const rawText = await response.text().catch(() => '');
-  if (!rawText) {
-    return fallback;
-  }
-
-  try {
-    const parsed = JSON.parse(rawText);
-    return pickFirstString(parsed?.message, parsed?.error, parsed?.details, parsed?.hint)
-      || JSON.stringify(parsed);
-  } catch (_) {
-    return rawText;
-  }
-}
-
-async function copyTextToClipboard(text) {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  if (typeof document === 'undefined') return;
-
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.left = '-9999px';
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand('copy');
-  } finally {
-    document.body.removeChild(textarea);
-  }
-}
-
-function RequestErrorMessage({ message, style, ...props }) {
-  const handleCopy = useCallback(async (event) => {
-    event.stopPropagation();
-    if (!message) return;
-
-    try {
-      await copyTextToClipboard(message);
-    } catch (_) {}
-  }, [message]);
-
-  return (
-    <div
-      {...props}
-      style={{
-        color: 'var(--danger)',
-        textAlign: 'left',
-        fontSize: '0.9rem',
-        lineHeight: 1.45,
-        ...style,
-      }}
-    >
-      <div style={{ fontWeight: 600 }}>Something went wrong</div>
-      <div>
-        <span>You may </span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          style={{
-            padding: 0,
-            border: 'none',
-            background: 'transparent',
-            color: 'inherit',
-            cursor: 'pointer',
-            font: 'inherit',
-            textDecoration: 'underline',
-            WebkitAppearance: 'none',
-            appearance: 'none',
-          }}
-        >
-          copy error message
-        </button>
-        <span> or try later</span>
-      </div>
-    </div>
-  );
 }
 
 export default function Home() {
@@ -170,32 +78,30 @@ export default function Home() {
     })();
     // Load stored tokens if present
     try {
-      if (typeof window !== 'undefined') {
-        let storedAccess = localStorage.getItem('AccessToken') || '';
-        let storedRefresh = localStorage.getItem('RefreshToken') || '';
-        let storedUserId = localStorage.getItem('AuthUserId') || '';
+      let storedAccess = safeStorage.get('AccessToken') || '';
+      let storedRefresh = safeStorage.get('RefreshToken') || '';
+      let storedUserId = safeStorage.get('AuthUserId') || '';
 
-        if (!storedAccess || !storedRefresh || !storedUserId) {
-          const raw = localStorage.getItem(LOCAL_STORAGE_AUTH_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed.access_token === 'string' && !storedAccess) storedAccess = parsed.access_token;
-            if (parsed && typeof parsed.refresh_token === 'string' && !storedRefresh) storedRefresh = parsed.refresh_token;
-            if (parsed && typeof parsed.user_id === 'string' && !storedUserId) storedUserId = parsed.user_id;
-          }
+      if (!storedAccess || !storedRefresh || !storedUserId) {
+        const raw = safeStorage.get(LOCAL_STORAGE_AUTH_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.access_token === 'string' && !storedAccess) storedAccess = parsed.access_token;
+          if (parsed && typeof parsed.refresh_token === 'string' && !storedRefresh) storedRefresh = parsed.refresh_token;
+          if (parsed && typeof parsed.user_id === 'string' && !storedUserId) storedUserId = parsed.user_id;
         }
-
-        if (storedAccess) setAccessToken(storedAccess);
-        if (storedRefresh) setRefreshToken(storedRefresh);
-        if (storedUserId) setAuthUserId(storedUserId);
       }
+
+      if (storedAccess) setAccessToken(storedAccess);
+      if (storedRefresh) setRefreshToken(storedRefresh);
+      if (storedUserId) setAuthUserId(storedUserId);
     } catch (_) {}
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const storedTheme = localStorage.getItem(LOCAL_STORAGE_THEME_KEY);
+    const storedTheme = safeStorage.get(LOCAL_STORAGE_THEME_KEY);
     if (storedTheme === 'light' || storedTheme === 'dark') {
       setTheme(storedTheme);
       return;
@@ -205,9 +111,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     try {
-      const raw = localStorage.getItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+      const raw = safeStorage.get(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
       if (!raw) return;
       const parsed = Number(raw);
       if (Number.isNaN(parsed)) return;
@@ -219,11 +124,7 @@ export default function Home() {
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-theme', theme);
     }
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(LOCAL_STORAGE_THEME_KEY, theme);
-      }
-    } catch (_) {}
+    safeStorage.set(LOCAL_STORAGE_THEME_KEY, theme);
   }, [theme]);
 
   async function handleEmailPasswordSignIn(event) {
@@ -242,13 +143,11 @@ export default function Home() {
           refresh_token: auth?.refreshToken ?? '',
           user_id: u?.id ?? '',
         };
-        try {
-          // Store both the bundled object and explicit keys as requested
-          localStorage.setItem(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(payload));
-          localStorage.setItem('AccessToken', payload.access_token || '');
-          localStorage.setItem('RefreshToken', payload.refresh_token || '');
-          localStorage.setItem('AuthUserId', payload.user_id || '');
-        } catch (_) {}
+        // Store both the bundled object and explicit keys as requested
+        safeStorage.set(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(payload));
+        safeStorage.set('AccessToken', payload.access_token || '');
+        safeStorage.set('RefreshToken', payload.refresh_token || '');
+        safeStorage.set('AuthUserId', payload.user_id || '');
         setAccessToken(payload.access_token);
         setRefreshToken(payload.refresh_token);
         setAuthUserId(payload.user_id);
@@ -336,7 +235,6 @@ export default function Home() {
     }
   }, []);
   // Auth tokens
-  const LOCAL_STORAGE_AUTH_KEY = 'stackAuthTokens';
   const [accessToken, setAccessToken] = useState('');
   const [refreshToken, setRefreshToken] = useState('');
   const [authUserId, setAuthUserId] = useState('');
@@ -418,20 +316,16 @@ export default function Home() {
       setRefreshToken(resolvedRefreshToken);
     }
 
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('AccessToken', nextAccessToken);
-        localStorage.setItem('RefreshToken', resolvedRefreshToken);
-        localStorage.setItem(
-          LOCAL_STORAGE_AUTH_KEY,
-          JSON.stringify({
-            access_token: nextAccessToken,
-            refresh_token: resolvedRefreshToken,
-            user_id: authUserId || '',
-          }),
-        );
-      } catch (_) {}
-    }
+    safeStorage.set('AccessToken', nextAccessToken);
+    safeStorage.set('RefreshToken', resolvedRefreshToken);
+    safeStorage.set(
+      LOCAL_STORAGE_AUTH_KEY,
+      JSON.stringify({
+        access_token: nextAccessToken,
+        refresh_token: resolvedRefreshToken,
+        user_id: authUserId || '',
+      }),
+    );
 
     return nextAccessToken;
   }, [authUserId, refreshToken]);
@@ -453,28 +347,15 @@ export default function Home() {
     setRandomHistoryPos(-1);
     initialPositionResolvedRef.current = false;
     setIsHistoryLoaded(false);
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY);
-        localStorage.removeItem('AccessToken');
-        localStorage.removeItem('RefreshToken');
-        localStorage.removeItem('AuthUserId');
-        localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
-      }
-    } catch (_) {}
+    safeStorage.remove(LOCAL_STORAGE_AUTH_KEY);
+    safeStorage.remove('AccessToken');
+    safeStorage.remove('RefreshToken');
+    safeStorage.remove('AuthUserId');
+    safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
   }, [user]);
 
   function buildDefaultOrder(length) {
     return Array.from({ length }, (_, i) => i);
-  }
-
-  function shuffleOrder(order) {
-    const arr = order.slice();
-    for (let i = arr.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
   }
 
   const mapApiDataToEntries = useCallback((data) => {
@@ -514,65 +395,83 @@ export default function Home() {
       .sort((a, b) => a.id - b.id);
   }, []);
 
-  const fetchVocabularyFromApi = useCallback(async (allowRefresh = true) => {
-    const headers = { Accept: 'application/json' };
+  // Generic authenticated JSON request against the Neon REST API.
+  // Handles bearer auth, a single 400 -> token-refresh -> retry cycle,
+  // optional abort timeout and consistent error-message extraction.
+  const apiRequest = useCallback(async (url, options = {}) => {
+    const {
+      method = 'GET',
+      body,
+      headers: extraHeaders,
+      timeoutMs,
+      allowRefresh = true,
+      abortErrorMessage = 'Request timed out',
+    } = options;
+
+    const headers = {
+      Accept: 'application/json',
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...extraHeaders,
+    };
     const currentAccessToken = tokenStore.accessToken || accessToken;
     if (currentAccessToken) {
       headers.Authorization = `Bearer ${currentAccessToken}`;
     }
 
-    const response = await fetch(VOCABULARY_URL, { method: 'GET', headers });
+    let controller;
+    let timeoutId;
+    if (timeoutMs) {
+      controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    }
 
-    if (response.status === 400 && allowRefresh) {
-      if (tokenStore.refreshToken) {
-        try {
-          await refreshAccessToken();
-        } catch (refreshError) {
-          await logoutDueToRefreshFailure();
-          throw refreshError;
+    try {
+      const response = await fetch(url, {
+        method,
+        headers,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (response.status === 400 && allowRefresh) {
+        if (tokenStore.refreshToken) {
+          try {
+            await refreshAccessToken();
+          } catch (refreshError) {
+            await logoutDueToRefreshFailure();
+            throw refreshError;
+          }
+          return apiRequest(url, { ...options, allowRefresh: false });
         }
-        return fetchVocabularyFromApi(false);
+        await logoutDueToRefreshFailure();
+        throw new TokenRefreshError('Refresh token missing for retry');
       }
-      await logoutDueToRefreshFailure();
-      throw new TokenRefreshError('Refresh token missing for retry');
-    }
 
-    if (!response.ok) {
-      throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
-    }
+      if (!response.ok) {
+        throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
+      }
 
-    return response.json();
+      return response.json();
+    } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (error?.name === 'AbortError') {
+        throw new Error(abortErrorMessage);
+      }
+      throw error;
+    }
   }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
 
-  const fetchDictionaryFromApi = useCallback(async (allowRefresh = true) => {
-    const headers = { Accept: 'application/json' };
-    const currentAccessToken = tokenStore.accessToken || accessToken;
-    if (currentAccessToken) {
-      headers.Authorization = `Bearer ${currentAccessToken}`;
-    }
+  const fetchVocabularyFromApi = useCallback(
+    (allowRefresh = true) => apiRequest(VOCABULARY_URL, { allowRefresh }),
+    [apiRequest],
+  );
 
-    const response = await fetch(DICTIONARY_URL, { method: 'GET', headers });
-
-    if (response.status === 400 && allowRefresh) {
-      if (tokenStore.refreshToken) {
-        try {
-          await refreshAccessToken();
-        } catch (refreshError) {
-          await logoutDueToRefreshFailure();
-          throw refreshError;
-        }
-        return fetchDictionaryFromApi(false);
-      }
-      await logoutDueToRefreshFailure();
-      throw new TokenRefreshError('Refresh token missing for retry');
-    }
-
-    if (!response.ok) {
-      throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
-    }
-
-    return response.json();
-  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+  const fetchDictionaryFromApi = useCallback(
+    (allowRefresh = true) => apiRequest(DICTIONARY_URL, { allowRefresh }),
+    [apiRequest],
+  );
 
   const loadDictionary = useCallback(async (options = {}) => {
     const { skipCache = false, isActiveRef } = options;
@@ -581,8 +480,8 @@ export default function Home() {
     if (!user && !effectiveAccessToken) return;
     try {
       setIsDictionaryLoading(true);
-      if (!skipCache && typeof window !== 'undefined') {
-        const cached = localStorage.getItem(LOCAL_STORAGE_DICTIONARY_KEY);
+      if (!skipCache) {
+        const cached = safeStorage.get(LOCAL_STORAGE_DICTIONARY_KEY);
         if (cached) {
           const cachedObject = JSON.parse(cached);
           if (!isActive()) return;
@@ -601,9 +500,7 @@ export default function Home() {
 
       const data = await fetchDictionaryFromApi(true);
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(LOCAL_STORAGE_DICTIONARY_KEY, JSON.stringify(data));
-      }
+      safeStorage.set(LOCAL_STORAGE_DICTIONARY_KEY, JSON.stringify(data));
 
       if (!isActive()) return;
       const dictionaries = mapApiDataToDictionaries(data);
@@ -632,8 +529,8 @@ export default function Home() {
     if (!user && !effectiveAccessToken) return;
     try {
       setIsLoading(true);
-      if (!skipCache && typeof window !== 'undefined') {
-        const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!skipCache) {
+        const cached = safeStorage.get(LOCAL_STORAGE_KEY);
         if (cached) {
           const cachedObject = JSON.parse(cached);
           if (!isActive()) return;
@@ -645,9 +542,7 @@ export default function Home() {
 
       const data = await fetchVocabularyFromApi(true);
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
-      }
+      safeStorage.set(LOCAL_STORAGE_KEY, JSON.stringify(data));
 
       if (!isActive()) return;
       const entries = mapApiDataToEntries(data);
@@ -664,116 +559,29 @@ export default function Home() {
     }
   }, [accessToken, user, fetchVocabularyFromApi, mapApiDataToEntries]);
 
-  const addWordToApi = useCallback(async (payload, allowRefresh = true) => {
-    const headers = {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    };
-    const currentAccessToken = tokenStore.accessToken || accessToken;
-    if (currentAccessToken) {
-      headers.Authorization = `Bearer ${currentAccessToken}`;
-    }
+  const addWordToApi = useCallback(
+    (payload, allowRefresh = true) => apiRequest(VOCABULARY_URL, {
+      method: 'POST',
+      body: payload,
+      headers: { Prefer: 'return=representation' },
+      timeoutMs: 5000,
+      allowRefresh,
+      abortErrorMessage: 'Failed to add word',
+    }),
+    [apiRequest],
+  );
 
-    // Create AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds timeout
-
-    try {
-      const response = await fetch(VOCABULARY_URL, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.status === 400 && allowRefresh) {
-        if (tokenStore.refreshToken) {
-          try {
-            await refreshAccessToken();
-          } catch (refreshError) {
-            await logoutDueToRefreshFailure();
-            throw refreshError;
-          }
-          return addWordToApi(payload, false);
-        }
-        await logoutDueToRefreshFailure();
-        throw new TokenRefreshError('Refresh token missing for retry');
-      }
-
-      if (!response.ok) {
-        throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
-      }
-
-      return response.json();
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      // Handle timeout/abort error
-      if (error.name === 'AbortError') {
-        throw new Error('Failed to add word');
-      }
-      
-      // Re-throw other errors
-      throw error;
-    }
-  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
-
-  const addDictionaryToApi = useCallback(async (payload, allowRefresh = true) => {
-    const headers = {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    };
-    const currentAccessToken = tokenStore.accessToken || accessToken;
-    if (currentAccessToken) {
-      headers.Authorization = `Bearer ${currentAccessToken}`;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-    try {
-      const response = await fetch(DICTIONARY_URL, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.status === 400 && allowRefresh) {
-        if (tokenStore.refreshToken) {
-          try {
-            await refreshAccessToken();
-          } catch (refreshError) {
-            await logoutDueToRefreshFailure();
-            throw refreshError;
-          }
-          return addDictionaryToApi(payload, false);
-        }
-        await logoutDueToRefreshFailure();
-        throw new TokenRefreshError('Refresh token missing for retry');
-      }
-
-      if (!response.ok) {
-        throw new Error(await readApiErrorMessage(response, `Request failed with status ${response.status}`));
-      }
-
-      return response.json();
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      if (error.name === 'AbortError') {
-        throw new Error('Failed to add dictionary');
-      }
-
-      throw error;
-    }
-  }, [accessToken, refreshAccessToken, logoutDueToRefreshFailure]);
+  const addDictionaryToApi = useCallback(
+    (payload, allowRefresh = true) => apiRequest(DICTIONARY_URL, {
+      method: 'POST',
+      body: payload,
+      headers: { Prefer: 'return=representation' },
+      timeoutMs: 5000,
+      allowRefresh,
+      abortErrorMessage: 'Failed to add dictionary',
+    }),
+    [apiRequest],
+  );
 
   const openAddModal = useCallback((prefill = '') => {
     const normalized = prefill.trim().slice(0, WORD_INPUT_MAX_LENGTH);
@@ -1087,14 +895,11 @@ export default function Home() {
   }, [selectedDictionaryId]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      if (selectedDictionaryId === null) {
-        localStorage.removeItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
-        return;
-      }
-      localStorage.setItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY, String(selectedDictionaryId));
-    } catch (_) {}
+    if (selectedDictionaryId === null) {
+      safeStorage.remove(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+      return;
+    }
+    safeStorage.set(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY, String(selectedDictionaryId));
   }, [selectedDictionaryId]);
 
   useEffect(() => {
@@ -1105,23 +910,19 @@ export default function Home() {
 
   // Load history on mount
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      setIsHistoryLoaded(true);
-      return;
-    }
     try {
-      const raw = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
+      const raw = safeStorage.get(LOCAL_STORAGE_HISTORY_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           setViewedHistory(parsed);
         }
       }
-      const savedLevel = localStorage.getItem(LOCAL_STORAGE_LEVEL_KEY);
+      const savedLevel = safeStorage.get(LOCAL_STORAGE_LEVEL_KEY);
       if (savedLevel) setSelectedLevel(savedLevel);
-      const savedRandom = localStorage.getItem(LOCAL_STORAGE_RANDOM_KEY);
+      const savedRandom = safeStorage.get(LOCAL_STORAGE_RANDOM_KEY);
       if (savedRandom === 'true') setIsRandomOrder(true);
-      const savedTranslationLanguageCode = localStorage.getItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
+      const savedTranslationLanguageCode = safeStorage.get(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
       if (savedTranslationLanguageCode && TRANSLATION_LANGUAGE_OPTIONS.some((lang) => lang.code === savedTranslationLanguageCode)) {
         setSelectedTranslationLanguageCode(savedTranslationLanguageCode);
       }
@@ -1264,9 +1065,7 @@ export default function Home() {
         dict_id: entry.dict_id ?? undefined,
         viewedAt: Date.now(),
       }];
-      try {
-        localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(next));
-      } catch (_) {}
+      safeStorage.set(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(next));
       return next;
     });
   }, []);
@@ -1390,11 +1189,11 @@ export default function Home() {
     try {
       await user?.signOut({ redirectUrl: '/' });
       setUser(null);
-      try { localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY); } catch (_) {}
-      try { localStorage.removeItem('AccessToken'); } catch (_) {}
-      try { localStorage.removeItem('RefreshToken'); } catch (_) {}
-      try { localStorage.removeItem('AuthUserId'); } catch (_) {}
-      try { localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY); } catch (_) {}
+      safeStorage.remove(LOCAL_STORAGE_AUTH_KEY);
+      safeStorage.remove('AccessToken');
+      safeStorage.remove('RefreshToken');
+      safeStorage.remove('AuthUserId');
+      safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
       setAccessToken('');
       setRefreshToken('');
       setAuthUserId('');
@@ -1555,91 +1354,16 @@ export default function Home() {
 
   if (!user && !accessToken) {
     return (
-      <>
-            <Head>
-        <title>Envibe Sign In</title>
-        <meta name="description" content="Envibe Sign In" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-      </Head>
-        <div
-          style={{
-            minHeight: '100dvh',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '2rem',
-            paddingTop: 'calc(2rem + env(safe-area-inset-top))',
-            paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))',
-            paddingLeft: 'calc(2rem + env(safe-area-inset-left))',
-            paddingRight: 'calc(2rem + env(safe-area-inset-right))',
-            background: 'var(--page-bg)',
-            color: 'var(--text-primary)',
-            boxSizing: 'border-box',
-          }}
-        >
-          <form
-            onSubmit={handleEmailPasswordSignIn}
-            data-testid="sign-in-form"
-            style={{ width: 'min(380px, 95vw)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '1rem', boxShadow: 'var(--shadow-elevated)', background: 'var(--surface)', color: 'var(--text-primary)' }}
-          >
-            <h1 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.15rem', textAlign: 'center' }}>Envibe</h1>
-          <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
-            <span style={{ fontSize: '0.85rem' }}>Email</span>
-            <input
-              data-testid="sign-in-email-input"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{ padding: '0.5rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '0.4rem', fontSize: '16px', boxSizing: 'border-box', background: 'var(--input-bg)', color: 'var(--text-primary)' }}
-            />
-          </label>
-          <label style={{ display: 'grid', gap: '0.25rem', marginBottom: '0.75rem', textAlign: 'left' }}>
-          <span style={{ fontSize: '0.85rem' }}>Password</span>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <input
-                data-testid="sign-in-password-input"
-                type={isPasswordVisible ? 'text' : 'password'}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                style={{ padding: '0.5rem 2.4rem 0.5rem 0.6rem', border: '1px solid var(--border-color)', borderRadius: '0.4rem', fontSize: '16px', boxSizing: 'border-box', width: '100%', background: 'var(--input-bg)', color: 'var(--text-primary)' }}
-              />
-              <button
-                type="button"
-                onClick={() => setIsPasswordVisible((prev) => !prev)}
-                style={{
-                  position: 'absolute',
-                  right: '0.4rem',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0.2rem',
-                  fontSize: '1rem',
-                  lineHeight: 1,
-                  color: 'var(--text-secondary)',
-                  WebkitAppearance: 'none',
-                  appearance: 'none',
-                }}
-                aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
-              >
-                {isPasswordVisible ? 'H' : 'S'}
-              </button>
-            </div>
-          </label>
-          {authError && (
-            <div data-testid="sign-in-error" style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{authError}</div>
-          )}
-          <button
-            type="submit"
-            data-testid="sign-in-submit"
-            style={{ marginTop: '1rem', width: '100%', padding: '0.6rem 0.8rem', borderRadius: '0.5rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: 'pointer', fontSize: '16px', WebkitAppearance: 'none', appearance: 'none' }}
-          >
-            Sign In
-          </button>
-        </form>
-      </div>
-      </>
+      <SignInForm
+        email={email}
+        onEmailChange={setEmail}
+        password={password}
+        onPasswordChange={setPassword}
+        isPasswordVisible={isPasswordVisible}
+        onTogglePasswordVisibility={() => setIsPasswordVisible((prev) => !prev)}
+        authError={authError}
+        onSubmit={handleEmailPasswordSignIn}
+      />
     );
   }
 
@@ -1842,270 +1566,53 @@ export default function Home() {
       </div>
 
       {/* Sliding menu */}
-      {isMenuOpen && (
-        <div
-          data-testid="menu-backdrop"
-          onClick={(event) => {
-            event.stopPropagation();
-            setIsMenuOpen(false);
-          }}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.25)',
-            backdropFilter: 'blur(2px)',
-            zIndex: 14,
-          }}
-        />
-      )}
-      <div
-        data-testid="menu-panel"
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: '33vw',
-          minWidth: '240px',
-          maxWidth: '400px',
-          background: 'var(--surface)',
-          color: 'var(--text-primary)',
-          transform: isMenuOpen ? 'translateX(0)' : 'translateX(-105%)',
-          transition: 'transform 0.25s ease',
-          padding: 'calc(env(safe-area-inset-top) + 1.4rem) 1.25rem 1.25rem',
-          boxShadow: 'var(--shadow-elevated)',
-          zIndex: 15,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.65rem',
-          overflowY: 'auto',
+      <SideMenu
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        dictionaryList={dictionaryList}
+        selectedDictionaryId={selectedDictionaryId}
+        selectedDictionaryTitle={selectedDictionaryTitle}
+        isDictionaryLoading={isDictionaryLoading}
+        onSelectDictionary={setSelectedDictionaryId}
+        toggleButtonStyle={toggleButtonStyle}
+        isLearningMode={isLearningMode}
+        isLearningAvailable={isLearningAvailable}
+        onToggleLearning={() => {
+          if (!isLearningAvailable) {
+            if (typeof window !== 'undefined') {
+              window.alert('Learning Mode unlocks after you view a few words.');
+            }
+            return;
+          }
+          setIsLearningMode((prev) => {
+            const next = !prev;
+            if (next) {
+              setLearningIndex(0);
+            }
+            return next;
+          });
         }}
-      >
-        <div style={{
-          position: 'absolute',
-          top: 'calc(env(safe-area-inset-top) + 0.75rem)',
-          left: 0,
-          right: 0,
-          height: '26px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '1.05rem',
-          fontWeight: 700,
-          pointerEvents: 'none',
-        }}>Menu</div>
-        <button
-          type="button"
-          data-testid="menu-close"
-          aria-label="Close menu"
-          onClick={() => setIsMenuOpen(false)}
-          style={{
-            position: 'absolute',
-            top: 'calc(env(safe-area-inset-top) + 0.75rem)',
-            left: 'calc(env(safe-area-inset-left) + 0.75rem)',
-            width: '44px',
-            height: '26px',
-            borderRadius: 'none',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            display: 'grid',
-            placeItems: 'center',
-            WebkitAppearance: 'none',
-            appearance: 'none',
-          }}
-        >
-          <span style={{ position: 'relative', width: '18px', height: '18px' }}>
-            {[45, -45].map((deg) => (
-              <span
-                key={deg}
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: 0,
-                  width: '18px',
-                  height: '1px',
-                  borderRadius: '999px',
-                  background: 'var(--text-primary)',
-                  transform: `translateY(-50%) rotate(${deg}deg)`,
-                }}
-              />
-            ))}
-          </span>
-        </button>
-        <div style={{ flexShrink: 0, height: 'calc(26px - 0.3rem)' }} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Dictionary</div>
-          <select
-            data-testid="menu-dictionary-select"
-            value={selectedDictionaryId ?? ''}
-            onChange={(event) => {
-              event.stopPropagation();
-              const nextValue = event.target.value;
-              if (!nextValue) {
-                setSelectedDictionaryId(null);
-                return;
-              }
-              const nextId = Number(nextValue);
-              setSelectedDictionaryId(Number.isNaN(nextId) ? null : nextId);
-            }}
-            disabled={isDictionaryLoading || dictionaryList.length === 0}
-            style={{
-              padding: '0.45rem 0.6rem',
-              borderRadius: '0.45rem',
-              border: '1px solid var(--border-color)',
-              background: 'var(--input-bg)',
-              color: 'var(--text-primary)',
-              fontSize: '0.95rem',
-              WebkitAppearance: 'none',
-              appearance: 'none',
-              opacity: isDictionaryLoading ? 0.7 : 1,
-              width: `calc(${Math.max(6, selectedDictionaryTitle.length)}ch + 1.2rem)`,
-              maxWidth: '100%',
-              textAlign: 'center',
-              textAlignLast: 'center',
-            }}
-          >
-            {dictionaryList.length === 0 ? (
-              <option value="">{isDictionaryLoading ? 'Loading…' : 'No dictionaries'}</option>
-            ) : (
-              dictionaryList.map((dict) => (
-                <option key={dict.id} value={dict.id}>
-                  {dict.title}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-        <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.15rem -0.25rem 0', paddingTop: '0.35rem' }} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Learning mode</div>
-          <button
-            type="button"
-            data-testid="menu-learning-toggle"
-            onClick={(event) => {
-              event.stopPropagation();
-              if (!isLearningAvailable) {
-                if (typeof window !== 'undefined') {
-                  window.alert('Learning Mode unlocks after you view a few words.');
-                }
-                return;
-              }
-              setIsLearningMode((prev) => {
-                const next = !prev;
-                if (next) {
-                  setLearningIndex(0);
-                }
-                return next;
-              });
-            }}
-            aria-pressed={isLearningMode}
-            aria-disabled={!isLearningAvailable}
-            style={{ ...toggleButtonStyle(isLearningMode), opacity: isLearningAvailable ? 1 : 0.6, cursor: isLearningAvailable ? 'pointer' : 'not-allowed' }}
-          >
-            {isLearningMode ? 'On' : 'Off'}
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Random order</div>
-          <button
-            type="button"
-            data-testid="menu-random-toggle"
-            onClick={(event) => {
-              event.stopPropagation();
-              const enabled = !isRandomOrder;
-              setIsRandomOrder(enabled);
-              try { localStorage.setItem(LOCAL_STORAGE_RANDOM_KEY, enabled ? 'true' : 'false'); } catch (_) {}
-              setRandomHistory([]);
-              setRandomHistoryPos(-1);
-            }}
-            style={toggleButtonStyle(isRandomOrder)}
-          >
-            {isRandomOrder ? 'On' : 'Off'}
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Add new word</div>
-          <button
-            type="button"
-            data-testid="menu-add-word"
-            onClick={(event) => {
-              event.stopPropagation();
-              openAddModal('');
-            }}
-            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-          >
-            Add
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Translate text</div>
-          <button
-            type="button"
-            data-testid="menu-translate-open"
-            onClick={(event) => {
-              event.stopPropagation();
-              openTranslateModal();
-            }}
-            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-          >
-            Open
-          </button>
-        </div>
-        <div style={{ borderTop: '1px solid var(--border-color)', margin: '0.15rem -0.25rem 0', paddingTop: '0.35rem' }} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Settings</div>
-          <button
-            type="button"
-            data-testid="menu-settings-open"
-            onClick={(event) => {
-              event.stopPropagation();
-              setIsAddModalOpen(false);
-              setIsSettingsOpen(true);
-              setIsMenuOpen(false);
-              blurSearchInput();
-            }}
-            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-          >
-            Open
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <div style={{ fontWeight: 600 }}>Sign out</div>
-          <button
-            type="button"
-            data-testid="menu-signout"
-            onClick={(event) => {
-              event.stopPropagation();
-              setIsMenuOpen(false);
-              handleSignOut();
-            }}
-            style={{ padding: '0.45rem 0.75rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-          >
-            Exit
-          </button>
-        </div>
-        <div
-          style={{
-            marginTop: 'auto',
-            paddingTop: '1rem',
-            color: 'var(--text-secondary)',
-            fontSize: '0.85rem',
-            lineHeight: 1.45,
-            textAlign: 'left',
-          }}
-        >
-          Please feel free to report any bugs or send feedback to{' '}
-          <a
-            href="mailto:envibe.dev@gmail.com"
-            onClick={(event) => event.stopPropagation()}
-            style={{ color: 'inherit', textDecoration: 'underline' }}
-          >
-            envibe.dev@gmail.com
-          </a>
-        </div>
-      </div>
+        isRandomOrder={isRandomOrder}
+        onToggleRandom={() => {
+          const enabled = !isRandomOrder;
+          setIsRandomOrder(enabled);
+          safeStorage.set(LOCAL_STORAGE_RANDOM_KEY, enabled ? 'true' : 'false');
+          setRandomHistory([]);
+          setRandomHistoryPos(-1);
+        }}
+        onOpenAddWord={() => openAddModal('')}
+        onOpenTranslate={openTranslateModal}
+        onOpenSettings={() => {
+          setIsAddModalOpen(false);
+          setIsSettingsOpen(true);
+          setIsMenuOpen(false);
+          blurSearchInput();
+        }}
+        onSignOut={() => {
+          setIsMenuOpen(false);
+          handleSignOut();
+        }}
+      />
 
       {/* Left arrow */}
       <button
@@ -2164,962 +1671,135 @@ export default function Home() {
       >
         →
       </button>
-      <div>
-        {isLoading && <p>Loading vocabulary…</p>}
-        {!isLoading && errorMessage && (
-          <RequestErrorMessage message={errorMessage} style={{ textAlign: 'center', fontSize: '1rem' }} />
-        )}
-        {!isLoading && !errorMessage && displayedEntry && (
-          <div
-            style={{
-              position: 'relative',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '1.5rem',
-              width: 'min(420px, calc(100vw - 4rem))',
-              boxSizing: 'border-box',
-            }}
-          >
-            <h1 data-testid="word-title" style={{ fontSize: '2rem', marginBottom: '0.5rem', color: 'var(--accent-strong)' }}>{displayWord}</h1>
-            <div
-              style={{
-                width: '100%',
-                padding: '24px 3rem',
-                boxSizing: 'border-box',
-                display: 'flex',
-                justifyContent: 'center',
-              }}
-            >
-              {isLearningMode && displayedEntry && !isTranslationRevealed ? (
-                <button
-                  type="button"
-                  data-testid="learning-show-translation"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (!displayedEntry?.word) return;
-                    setRevealedTranslations((prev) => ({ ...prev, [displayedEntry.word]: true }));
-                  }}
-                  style={{
-                    fontSize: '0.95rem',
-                    padding: '0.5rem 0.9rem',
-                    borderRadius: '0.4rem',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--surface)',
-                    color: 'var(--text-primary)',
-                    cursor: 'pointer',
-                    WebkitAppearance: 'none',
-                    appearance: 'none',
-                  }}
-                >
-                  Show translation
-                </button>
-              ) : (
-                <p
-                  data-testid="word-translation"
-                  style={{
-                    margin: 0,
-                    fontSize: '1.5rem',
-                    opacity: 0.8,
-                    lineHeight: 1.4,
-                    textAlign: 'center',
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {displayTranslation}
-                </p>
-              )}
-            </div>
-            {!isSentenceGenerationHidden && (
-              <button
-                type="button"
-                data-testid="generate-sentence-button"
-                onClick={handleGenerateSentence}
-                style={{
-                  marginTop: '0.75rem',
-                  padding: '0.5rem 0.9rem',
-                  borderRadius: '0.4rem',
-                  border: '1px solid var(--border-color)',
-                  background: 'var(--surface)',
-                  cursor: 'pointer',
-                  fontSize: '0.95rem',
-                  color: 'var(--text-on-primary)',
-                  WebkitAppearance: 'none',
-                  appearance: 'none',
-                }}
-                aria-label="Generate sentence"
-              >
-                {isGenerating ? 'Generating…' : 'Generate Sentence'}
-              </button>
-            )}
-            {(generatedSentence || generatedSentenceError) && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 1rem)',
-                  left: 0,
-                  right: 0,
-                  margin: '0 auto',
-                  fontSize: '1rem',
-                  padding: '0.75rem 1.5rem',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '0.5rem',
-                  background: 'var(--surface)',
-                  textAlign: 'center',
-                  width: '100%',
-                  maxWidth: '100%',
-                  boxSizing: 'border-box',
-                  color: 'var(--text-primary)',
-                  lineHeight: 1.6,
-                  display: 'grid',
-                  gap: '0.35rem',
-                }}
-              >
-                {generatedSentenceError ? (
-                  <RequestErrorMessage
-                    data-testid="generated-sentence-error"
-                    message={generatedSentenceError}
-                    style={{ textAlign: 'center' }}
-                  />
-                ) : (
-                  <>
-                    <div data-testid="generated-sentence-text">{generatedSentence}</div>
-                    <div style={{ justifySelf: 'end', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                      {isSentenceCopied && (
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', opacity: 0.90 }}>
-                          Copied!
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async (event) => {
-                          event.stopPropagation();
-                          if (!generatedSentence) return;
-                          try {
-                            if (navigator?.clipboard?.writeText) {
-                              await navigator.clipboard.writeText(generatedSentence);
-                              setIsSentenceCopied(true);
-                            }
-                          } catch (_) {}
-                        }}
-                        aria-label="Copy generated sentence"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '0.2rem',
-                          border: 'none',
-                          borderRadius: '0.4rem',
-                          background: 'transparent',
-                          color: 'var(--text-primary)',
-                          cursor: 'pointer',
-                          WebkitAppearance: 'none',
-                          appearance: 'none',
-                        }}
-                      >
-                        <svg
-                          enableBackground="new 0 0 24 24"
-                          focusable="false"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          width="18"
-                          aria-hidden="true"
-                          style={{ opacity: 0.9 }}
-                        >
-                          <g>
-                            <rect fill="none" height="24" width="24" />
-                          </g>
-                          <g>
-                            <path fill="currentColor" d="M16,20H5V6H3v14c0,1.1,0.9,2,2,2h11V20z M20,16V4c0-1.1-0.9-2-2-2H9C7.9,2,7,2.9,7,4v12c0,1.1,0.9,2,2,2h9 C19.1,18,20,17.1,20,16z M18,16H9V4h9V16z" />
-                          </g>
-                        </svg>
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        {isEmptyDictionaryState && (
-          <div style={{ display: 'grid', gap: '1rem', justifyItems: 'center' }}>
-            <p style={{ margin: 0, opacity: 0.8, lineHeight: 1.4 }}>
-              Dictionary {selectedDictionary?.title ? `"${selectedDictionary.title}"` : 'This dictionary'} doesn't contain any words. 
-              <br />Use the button below to add new words.
-            </p>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                openAddModal('');
-              }}
-              style={{
-                padding: '0.5rem 0.9rem',
-                borderRadius: '0.45rem',
-                border: '1px solid var(--accent-strong)',
-                background: 'var(--accent-strong)',
-                color: 'var(--text-on-accent)',
-                cursor: 'pointer',
-                WebkitAppearance: 'none',
-                appearance: 'none',
-              }}
-            >
-              Add word
-            </button>
-          </div>
-        )}
-        {!isLoading && !errorMessage && !displayedEntry && !isEmptyDictionaryState && (
-          <p>No vocabulary available. Try reloading.</p>
-        )}
-      </div>
+      <WordCard
+        isLoading={isLoading}
+        errorMessage={errorMessage}
+        displayedEntry={displayedEntry}
+        displayWord={displayWord}
+        displayTranslation={displayTranslation}
+        isLearningMode={isLearningMode}
+        isTranslationRevealed={isTranslationRevealed}
+        onRevealTranslation={(word) => setRevealedTranslations((prev) => ({ ...prev, [word]: true }))}
+        isSentenceGenerationHidden={isSentenceGenerationHidden}
+        onGenerateSentence={handleGenerateSentence}
+        isGenerating={isGenerating}
+        generatedSentence={generatedSentence}
+        generatedSentenceError={generatedSentenceError}
+        isSentenceCopied={isSentenceCopied}
+        onSentenceCopied={() => setIsSentenceCopied(true)}
+        isEmptyDictionaryState={isEmptyDictionaryState}
+        dictionaryTitle={selectedDictionary?.title}
+        onAddWord={() => openAddModal('')}
+      />
 
       {/* History overlay */}
-      {isHistoryOpen && (
-        <div
-          onClick={() => setIsHistoryOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--overlay)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="History"
-          data-testid="history-modal"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', maxHeight: '80vh', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
-              <strong>History</strong>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button
-                  type="button"
-                  data-testid="history-clear"
-                  onClick={() => {
-                    setViewedHistory([]);
-                    try {
-                      if (typeof window !== 'undefined') {
-                      localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
-                    }
-                  } catch (_) {}
-                  }}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  data-testid="history-close"
-                  onClick={() => setIsHistoryOpen(false)}
-                  style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-on-accent)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
-              {filteredViewedHistory.length === 0 ? (
-                <p data-testid="history-empty" style={{ padding: '1rem', opacity: 0.7 }}>No viewed words yet.</p>
-              ) : (
-                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {filteredViewedHistory.map((item, index) => (
-                    <li key={`${item.id ?? 'noid'}-${index}`} data-testid="history-item" style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-                      <div style={{ fontWeight: 600 }}>{item.word}</div>
-                      <div style={{ opacity: 0.8 }}>{item.translation}</div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <HistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        onClear={() => {
+          setViewedHistory([]);
+          safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
+        }}
+        items={filteredViewedHistory}
+      />
 
       {/* Add word modal */}
-      {isAddModalOpen && (
-        <div
-          onClick={closeAddModal}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--overlay)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 20,
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Add new word"
-          data-testid="add-word-modal"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--surface)',
-              color: 'var(--text-primary)',
-              width: 'min(480px, 95vw)',
-              borderRadius: '0.6rem',
-              boxShadow: 'var(--shadow-elevated)',
-              padding: '1rem',
-              display: 'grid',
-              gap: '0.75rem',
-            }}
-          >
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>New word</span>
-              <input
-                data-testid="add-word-input"
-                maxLength={WORD_INPUT_MAX_LENGTH}
-                value={newWord}
-                onChange={(e) => setNewWord(e.target.value.slice(0, WORD_INPUT_MAX_LENGTH))}
-                placeholder="Enter a new word"
-                onKeyDown={(e) => e.stopPropagation()}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>Translation</span>
-              <input
-                data-testid="add-word-translation-input"
-                maxLength={WORD_INPUT_MAX_LENGTH}
-                value={newTranslation}
-                onChange={(e) => setNewTranslation(e.target.value.slice(0, WORD_INPUT_MAX_LENGTH))}
-                placeholder="Enter translation"
-                onKeyDown={(e) => e.stopPropagation()}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>Dictionary</span>
-              <select
-                data-testid="add-word-dictionary-select"
-                value={newDictionaryId ?? ''}
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  if (!nextValue) {
-                    setNewDictionaryId(null);
-                    return;
-                  }
-                  const nextId = Number(nextValue);
-                  setNewDictionaryId(Number.isNaN(nextId) ? null : nextId);
-                }}
-                onKeyDown={(e) => e.stopPropagation()}
-                disabled={dictionaryList.length === 0 || isDictionaryLoading}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box', WebkitAppearance: 'none', appearance: 'none', opacity: isDictionaryLoading ? 0.7 : 1 }}
-              >
-                {dictionaryList.length === 0 ? (
-                  <option value="">{isDictionaryLoading ? 'Loading…' : 'No dictionaries'}</option>
-                ) : (
-                  dictionaryList.map((dict) => (
-                    <option key={dict.id} value={dict.id}>
-                      {dict.title}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', alignContent: 'center' }}>
-              {addSuccess && (
-                <div data-testid="add-word-success" style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
-                  Word successfully added
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  data-testid="add-word-submit"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAddWord();
-                  }}
-                  disabled={isAddLoading}
-                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: isAddLoading ? 'default' : 'pointer', WebkitAppearance: 'none', appearance: 'none', opacity: isAddLoading ? 0.85 : 1 }}
-                >
-                  {isAddLoading ? (
-                    <span className="add-button-dots" aria-live="polite">
-                      <span className="add-button-dot" />
-                      <span className="add-button-dot" />
-                      <span className="add-button-dot" />
-                    </span>
-                  ) : (
-                    'Add'
-                  )}
-                </button>
-                <button
-                  type="button"
-                  data-testid="add-word-close"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeAddModal();
-                  }}
-                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            {addError && (
-              isAddRequestError ? (
-                <RequestErrorMessage data-testid="add-word-error" message={addError} />
-              ) : (
-                <div data-testid="add-word-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addError}</div>
-              )
-            )}
-          </div>
-        </div>
-      )}
+      <AddWordModal
+        isOpen={isAddModalOpen}
+        onClose={closeAddModal}
+        word={newWord}
+        onWordChange={setNewWord}
+        translation={newTranslation}
+        onTranslationChange={setNewTranslation}
+        dictionaryId={newDictionaryId}
+        onDictionaryChange={setNewDictionaryId}
+        dictionaryList={dictionaryList}
+        isDictionaryLoading={isDictionaryLoading}
+        success={addSuccess}
+        isLoading={isAddLoading}
+        error={addError}
+        isRequestError={isAddRequestError}
+        onSubmit={handleAddWord}
+      />
 
       {/* Translate modal */}
-      {isTranslateModalOpen && (
-        <div
-          onClick={closeTranslateModal}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--overlay)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 20,
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Translate word"
-          data-testid="translate-modal"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--surface)',
-              color: 'var(--text-primary)',
-              width: 'min(480px, 95vw)',
-              borderRadius: '0.6rem',
-              boxShadow: 'var(--shadow-elevated)',
-              padding: '1rem',
-              display: 'grid',
-              gap: '0.75rem',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
-              <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left', width: '100%' }}>
-                <select
-                  data-testid="translate-language-select"
-                  value={selectedTranslationLanguageCode}
-                  onChange={(e) => {
-                    const code = e.target.value;
-                    setSelectedTranslationLanguageCode(code);
-                    try {
-                      localStorage.setItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY, code);
-                    } catch (_) {}
-                  }}
-                  style={{
-                    padding: '0.45rem 0.6rem',
-                    borderRadius: '0.45rem',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--input-bg)',
-                    color: 'var(--text-primary)',
-                    width: `calc(${Math.max(6, selectedTranslationLanguageLabel.length)}ch + 1.2rem)`,
-                    maxWidth: '100%',
-                    textAlign: 'center',
-                    textAlignLast: 'center',
-                    fontSize: '0.95rem',
-                    WebkitAppearance: 'none',
-                    appearance: 'none',
-                  }}
-                >
-                  {TRANSLATION_LANGUAGE_OPTIONS.map((lang) => (
-                    <option key={lang.code} value={lang.code}>
-                      {lang.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                data-testid="translate-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTranslateModal();
-                }}
-                style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', flexShrink: 0, WebkitAppearance: 'none', appearance: 'none' }}
-              >
-                Close
-              </button>
-            </div>
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>Word or phrase</span>
-              <input
-                data-testid="translate-word-input"
-                maxLength={WORD_INPUT_MAX_LENGTH}
-                value={translateWordInput}
-                onChange={(e) => {
-                  setTranslateWordInput(e.target.value.slice(0, WORD_INPUT_MAX_LENGTH));
-                  setTranslatedWord('');
-                  setTranslatedSourceWord('');
-                  setTranslatedDictionaryId(null);
-                  setTranslateError('');
-                  setIsTranslateRequestError(false);
-                  setTranslateSuccess('');
-                  setIsTranslatedWordCopied(false);
-                }}
-                placeholder="Enter word or phrase"
-                onKeyDown={(e) => e.stopPropagation()}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>Translation</span>
-              <div style={{ position: 'relative' }}>
-                <textarea
-                  data-testid="translate-result-field"
-                  readOnly
-                  value={translatedWord}
-                  placeholder="Translation result"
-                  onKeyDown={(e) => e.stopPropagation()}
-                  style={{
-                    width: '100%',
-                    minHeight: '84px',
-                    resize: 'none',
-                    padding: '0.55rem 2.7rem 0.55rem 0.65rem',
-                    borderRadius: '0.45rem',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--input-bg)',
-                    color: 'var(--text-primary)',
-                    fontSize: '16px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-                <div style={{ position: 'absolute', right: '0.45rem', bottom: '0.45rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                  {isTranslatedWordCopied && (
-                    <span style={{ fontSize: '0.8rem', opacity: 0.85 }}>Copied!</span>
-                  )}
-                  <button
-                    type="button"
-                    data-testid="translate-copy"
-                    onClick={async (event) => {
-                      event.stopPropagation();
-                      if (!translatedWord.trim()) return;
-                      try {
-                        if (navigator?.clipboard?.writeText) {
-                          await navigator.clipboard.writeText(translatedWord);
-                          setIsTranslatedWordCopied(true);
-                        }
-                      } catch (_) {}
-                    }}
-                    disabled={!translatedWord.trim()}
-                    aria-label="Copy translated word"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      padding: '0.2rem',
-                      border: 'none',
-                      borderRadius: '0.4rem',
-                      background: 'transparent',
-                      color: 'var(--text-primary)',
-                      cursor: translatedWord.trim() ? 'pointer' : 'default',
-                      opacity: translatedWord.trim() ? 1 : 0.55,
-                      WebkitAppearance: 'none',
-                      appearance: 'none',
-                    }}
-                  >
-                    <svg
-                      enableBackground="new 0 0 24 24"
-                      focusable="false"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      width="18"
-                      aria-hidden="true"
-                      style={{ opacity: 0.9 }}
-                    >
-                      <g>
-                        <rect fill="none" height="24" width="24" />
-                      </g>
-                      <g>
-                        <path fill="currentColor" d="M16,20H5V6H3v14c0,1.1,0.9,2,2,2h11V20z M20,16V4c0-1.1-0.9-2-2-2H9C7.9,2,7,2.9,7,4v12c0,1.1,0.9,2,2,2h9 C19.1,18,20,17.1,20,16z M18,16H9V4h9V16z" />
-                      </g>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
-              <button
-                type="button"
-                data-testid="translate-submit"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleTranslateWord();
-                }}
-                disabled={isTranslateActionDisabled}
-                style={{
-                  padding: '0.5rem 0.9rem',
-                  borderRadius: '0.45rem',
-                  border: '1px solid var(--accent-strong)',
-                  background: 'var(--accent-strong)',
-                  color: 'var(--text-on-accent)',
-                  cursor: isTranslateActionDisabled ? 'default' : 'pointer',
-                  WebkitAppearance: 'none',
-                  appearance: 'none',
-                  opacity: isTranslateActionDisabled ? 0.7 : 1,
-                }}
-              >
-                {isTranslateLoading ? (
-                  <span className="add-button-dots" aria-live="polite">
-                    <span className="add-button-dot" />
-                    <span className="add-button-dot" />
-                    <span className="add-button-dot" />
-                  </span>
-                ) : (
-                  'Translate'
-                )}
-              </button>
-              <button
-                type="button"
-                data-testid="translate-add-to-dictionary"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleAddTranslatedWord();
-                }}
-                disabled={isAddTranslatedDisabled}
-                style={{
-                  padding: '0.5rem 0.9rem',
-                  borderRadius: '0.45rem',
-                  border: '1px solid var(--accent-strong)',
-                  background: 'var(--accent-strong)',
-                  color: 'var(--text-on-accent)',
-                  cursor: isAddTranslatedDisabled ? 'default' : 'pointer',
-                  WebkitAppearance: 'none',
-                  appearance: 'none',
-                  opacity: isAddTranslatedDisabled ? 0.7 : 1,
-                }}
-              >
-                {isAddTranslatedLoading ? (
-                  <span className="add-button-dots" aria-live="polite">
-                    <span className="add-button-dot" />
-                    <span className="add-button-dot" />
-                    <span className="add-button-dot" />
-                  </span>
-                ) : (
-                  'Add to Dictionary'
-                )}
-              </button>
-            </div>
-            {translateSuccess && (
-              <div data-testid="translate-success" style={{ color: 'var(--accent-strong)', textAlign: 'left', fontSize: '0.9rem' }}>{translateSuccess}</div>
-            )}
-            {translateError && (
-              isTranslateRequestError ? (
-                <RequestErrorMessage data-testid="translate-error" message={translateError} />
-              ) : (
-                <div data-testid="translate-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{translateError}</div>
-              )
-            )}
-          </div>
-        </div>
-      )}
+      <TranslateModal
+        isOpen={isTranslateModalOpen}
+        onClose={closeTranslateModal}
+        selectedLanguageCode={selectedTranslationLanguageCode}
+        selectedLanguageLabel={selectedTranslationLanguageLabel}
+        onLanguageChange={(code) => {
+          setSelectedTranslationLanguageCode(code);
+          safeStorage.set(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY, code);
+        }}
+        wordInput={translateWordInput}
+        onWordInputChange={(value) => {
+          setTranslateWordInput(value);
+          setTranslatedWord('');
+          setTranslatedSourceWord('');
+          setTranslatedDictionaryId(null);
+          setTranslateError('');
+          setIsTranslateRequestError(false);
+          setTranslateSuccess('');
+          setIsTranslatedWordCopied(false);
+        }}
+        translatedWord={translatedWord}
+        isCopied={isTranslatedWordCopied}
+        onCopied={() => setIsTranslatedWordCopied(true)}
+        isTranslateDisabled={isTranslateActionDisabled}
+        isTranslateLoading={isTranslateLoading}
+        onTranslate={handleTranslateWord}
+        isAddDisabled={isAddTranslatedDisabled}
+        isAddLoading={isAddTranslatedLoading}
+        onAddToDictionary={handleAddTranslatedWord}
+        success={translateSuccess}
+        error={translateError}
+        isRequestError={isTranslateRequestError}
+      />
 
       {/* Add dictionary modal */}
-      {isAddDictionaryModalOpen && (
-        <div
-          onClick={closeAddDictionaryModal}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--overlay)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 20,
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Add new dictionary"
-          data-testid="add-dictionary-modal"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--surface)',
-              color: 'var(--text-primary)',
-              width: 'min(480px, 95vw)',
-              borderRadius: '0.6rem',
-              boxShadow: 'var(--shadow-elevated)',
-              padding: '1rem',
-              display: 'grid',
-              gap: '0.75rem',
-            }}
-          >
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>Title</span>
-              <input
-                data-testid="add-dictionary-title-input"
-                maxLength={36}
-                value={newDictionaryTitle}
-                onChange={(e) => setNewDictionaryTitle(e.target.value.slice(0, 36))}
-                placeholder="Enter dictionary title"
-                onKeyDown={(e) => e.stopPropagation()}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: '0.35rem', textAlign: 'left' }}>
-              <span style={{ fontWeight: 600 }}>Language</span>
-              <input
-                data-testid="add-dictionary-language-input"
-                maxLength={16}
-                value={newDictionaryLanguage}
-                onChange={(e) => {
-                  const filtered = e.target.value.replace(/[^\p{L}]/gu, '').slice(0, 16);
-                  setNewDictionaryLanguage(filtered);
-                }}
-                placeholder="Enter language"
-                onKeyDown={(e) => e.stopPropagation()}
-                style={{ padding: '0.55rem 0.65rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '16px', boxSizing: 'border-box' }}
-              />
-            </label>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', alignContent: 'center' }}>
-              {addDictionarySuccess && (
-                <div data-testid="add-dictionary-success" style={{ flex: '1 1 200px', textAlign: 'left', paddingLeft: '0.65rem', color: 'var(--accent-strong)', marginRight: 'auto' }}>
-                  Dictionary successfully added
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  data-testid="add-dictionary-submit"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAddDictionary();
-                  }}
-                  disabled={isAddDictionaryLoading}
-                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--accent-strong)', background: 'var(--accent-strong)', color: 'var(--text-on-accent)', cursor: isAddDictionaryLoading ? 'default' : 'pointer', WebkitAppearance: 'none', appearance: 'none', opacity: isAddDictionaryLoading ? 0.85 : 1 }}
-                >
-                  {isAddDictionaryLoading ? (
-                    <span className="add-button-dots" aria-live="polite">
-                      <span className="add-button-dot" />
-                      <span className="add-button-dot" />
-                      <span className="add-button-dot" />
-                    </span>
-                  ) : (
-                    'Add'
-                  )}
-                </button>
-                <button
-                  type="button"
-                  data-testid="add-dictionary-close"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeAddDictionaryModal();
-                  }}
-                  style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            {addDictionaryError && (
-              isAddDictionaryRequestError ? (
-                <RequestErrorMessage data-testid="add-dictionary-error" message={addDictionaryError} />
-              ) : (
-                <div data-testid="add-dictionary-error" style={{ color: 'var(--danger)', textAlign: 'left', fontSize: '0.9rem' }}>{addDictionaryError}</div>
-              )
-            )}
-          </div>
-        </div>
-      )}
+      <AddDictionaryModal
+        isOpen={isAddDictionaryModalOpen}
+        onClose={closeAddDictionaryModal}
+        title={newDictionaryTitle}
+        onTitleChange={setNewDictionaryTitle}
+        language={newDictionaryLanguage}
+        onLanguageChange={setNewDictionaryLanguage}
+        success={addDictionarySuccess}
+        isLoading={isAddDictionaryLoading}
+        error={addDictionaryError}
+        isRequestError={isAddDictionaryRequestError}
+        onSubmit={handleAddDictionary}
+      />
 
       {/* Settings overlay */}
-      {isSettingsOpen && (
-        <div
-          onClick={() => setIsSettingsOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--overlay)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 100,
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Settings"
-          data-testid="settings-modal"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--surface)', width: 'min(700px, 95vw)', borderRadius: '0.6rem', overflow: 'hidden', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.8rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
-              <strong>Settings</strong>
-              <button
-                type="button"
-                data-testid="settings-close"
-                onClick={() => setIsSettingsOpen(false)}
-                style={{ padding: '0.5rem 0.9rem', borderRadius: '0.45rem', border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-              >
-                Close
-              </button>
-            </div>
-            <div style={{ padding: '1rem', display: 'grid', gap: '0.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Dark theme</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-theme-toggle"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-                  }}
-                  style={toggleButtonStyle(theme === 'dark')}
-                >
-                  {theme === 'dark' ? 'On' : 'Off'}
-                </button>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Hide sentence generation</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-hide-sentence-toggle"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setIsSentenceGenerationHidden((prev) => !prev);
-                  }}
-                  style={toggleButtonStyle(isSentenceGenerationHidden)}
-                >
-                  {isSentenceGenerationHidden ? 'On' : 'Off'}
-                </button>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>History</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-history-open"
-                  onClick={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Open
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Reset cache and history</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-reset"
-                  onClick={() => {
-                    try {
-                      if (typeof window !== 'undefined') {
-                        localStorage.removeItem(LOCAL_STORAGE_KEY);
-                        localStorage.removeItem(LOCAL_STORAGE_DICTIONARY_KEY);
-                        localStorage.removeItem(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
-                        localStorage.removeItem(LOCAL_STORAGE_HISTORY_KEY);
-                        localStorage.removeItem(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
-                      }
-                    } catch (_) {}
-                    window.location.reload();
-                  }}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Reset
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Language level</div>
-                </div>
-                <select
-                  data-testid="settings-language-level-select"
-                  value={selectedLevel}
-                  onChange={(e) => {
-                    const level = e.target.value;
-                    setSelectedLevel(level);
-                    try {
-                      localStorage.setItem(LOCAL_STORAGE_LEVEL_KEY, level);
-                    } catch (_) {}
-                  }}
-                  style={{
-                    padding: '0.45rem 0.6rem',
-                    borderRadius: '0.45rem',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--input-bg)',
-                    color: 'var(--text-primary)',
-                    fontSize: '0.95rem',
-                    WebkitAppearance: 'none',
-                    appearance: 'none',
-                  }}
-                >
-                  {['A1','A2','B1','B2','C1','C2'].map((lvl) => (
-                    <option key={lvl} value={lvl}>{lvl}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Sentence topic</div>
-                </div>
-                <select
-                  data-testid="settings-topic-select"
-                  value={selectedTopic}
-                  onChange={(e) => setSelectedTopic(e.target.value)}
-                  style={{
-                    padding: '0.45rem 0.6rem',
-                    borderRadius: '0.45rem',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--input-bg)',
-                    color: 'var(--text-primary)',
-                    width: `calc(${Math.max(6, selectedTopicLabel.length)}ch + 1.2rem)`,
-                    maxWidth: '100%',
-                    textAlign: 'center',
-                    textAlignLast: 'center',
-                    fontSize: '0.95rem',
-                    WebkitAppearance: 'none',
-                    appearance: 'none',
-                  }}
-                >
-                  {SENTENCE_TOPIC_OPTIONS.map((topic) => (
-                    <option key={topic.value} value={topic.value}>
-                      {topic.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
-                <div>
-                  <div style={{ textAlign: 'left', margin: 0, fontWeight: 600 }}>Add new dictionary</div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="settings-add-dictionary"
-                  onClick={openAddDictionaryModal}
-                  style={{ padding: '0.4rem 0.7rem', border: '1px solid var(--border-color)', background: 'var(--surface)', borderRadius: '0.4rem', cursor: 'pointer', color: 'var(--text-primary)', WebkitAppearance: 'none', appearance: 'none' }}
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        theme={theme}
+        onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+        isSentenceGenerationHidden={isSentenceGenerationHidden}
+        onToggleSentenceGeneration={() => setIsSentenceGenerationHidden((prev) => !prev)}
+        onOpenHistory={() => { setIsHistoryOpen(true); setIsSettingsOpen(false); }}
+        onReset={() => {
+          safeStorage.remove(LOCAL_STORAGE_KEY);
+          safeStorage.remove(LOCAL_STORAGE_DICTIONARY_KEY);
+          safeStorage.remove(LOCAL_STORAGE_SELECTED_DICTIONARY_KEY);
+          safeStorage.remove(LOCAL_STORAGE_HISTORY_KEY);
+          safeStorage.remove(LOCAL_STORAGE_TRANSLATION_LANGUAGE_KEY);
+          window.location.reload();
+        }}
+        selectedLevel={selectedLevel}
+        onLevelChange={(level) => {
+          setSelectedLevel(level);
+          safeStorage.set(LOCAL_STORAGE_LEVEL_KEY, level);
+        }}
+        selectedTopic={selectedTopic}
+        selectedTopicLabel={selectedTopicLabel}
+        onTopicChange={setSelectedTopic}
+        onAddDictionary={openAddDictionaryModal}
+        toggleButtonStyle={toggleButtonStyle}
+      />
     </div>
     </>
   );
